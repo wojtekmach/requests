@@ -27,6 +27,7 @@ defmodule Requests do
         resp_headers =
           for {key, value} <- resp_headers, do: {List.to_string(key), List.to_string(value)}
 
+        body = decode_body(body, List.keyfind(resp_headers, "content-type", 0))
         {:ok, %{status: status, headers: resp_headers, body: body}}
 
       {:error, reason} ->
@@ -34,6 +35,14 @@ defmodule Requests do
         {:error, %RuntimeError{message: message}}
     end
   end
+
+  defp decode_body(body, {_, type}), do: decode_body(body, type)
+
+  if Code.ensure_loaded?(Jason) do
+    defp decode_body(body, "application/json" <> _), do: Jason.decode!(body)
+  end
+
+  defp decode_body(body, _), do: body
 
   @doc """
   See `get/2`.

@@ -9,6 +9,12 @@ defmodule RequestsTest do
       Plug.Conn.send_resp(conn, 200, "ok")
     end)
 
+    Bypass.expect(bypass, "GET", "/json", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json; charset=utf-8")
+      |> Plug.Conn.send_resp(200, Jason.encode!(%{"a" => 1}))
+    end)
+
     Bypass.expect(bypass, "GET", "/404", fn conn ->
       Plug.Conn.send_resp(conn, 404, "not found")
     end)
@@ -17,6 +23,8 @@ defmodule RequestsTest do
     assert Requests.get!(base_url <> "/200", headers: [{"user-agent", "requests"}]).status == 200
     assert Requests.get!(base_url <> "/200", headers: [user_agent: "requests"]).status == 200
     assert Requests.get!(base_url <> "/404").status == 404
+
+    assert Requests.get!(base_url <> "/json").body == %{"a" => 1}
 
     :ok = Bypass.down(bypass)
 
