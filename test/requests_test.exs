@@ -12,7 +12,15 @@ defmodule RequestsTest do
     Bypass.expect(bypass, "GET", "/json", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json; charset=utf-8")
-      |> Plug.Conn.send_resp(200, Jason.encode!(%{"a" => 1}))
+      |> Plug.Conn.send_resp(200, Jason.encode!(%{"x" => 1}))
+    end)
+
+    Bypass.expect(bypass, "GET", "/csv", fn conn ->
+      body = NimbleCSV.RFC4180.dump_to_iodata([~w(x y), ~w(1 1), ~w(2 2)])
+
+      conn
+      |> Plug.Conn.put_resp_content_type("text/csv; charset=utf-8")
+      |> Plug.Conn.send_resp(200, body)
     end)
 
     Bypass.expect(bypass, "GET", "/404", fn conn ->
@@ -24,7 +32,13 @@ defmodule RequestsTest do
     assert Requests.get!(base_url <> "/200", headers: [user_agent: "requests"]).status == 200
     assert Requests.get!(base_url <> "/404").status == 404
 
-    assert Requests.get!(base_url <> "/json").body == %{"a" => 1}
+    assert Requests.get!(base_url <> "/json").body == %{"x" => 1}
+
+    assert Requests.get!(base_url <> "/csv").body == [
+             ~w(x y),
+             ~w(1 1),
+             ~w(2 2)
+           ]
 
     :ok = Bypass.down(bypass)
 

@@ -52,6 +52,12 @@ defmodule Requests do
     defp decode_body(body, "application/json" <> _), do: Jason.decode!(body)
   end
 
+  if Code.ensure_loaded?(NimbleCSV) do
+    defp decode_body(body, "text/csv" <> _) do
+      NimbleCSV.RFC4180.parse_string(body, skip_headers: false)
+    end
+  end
+
   defp decode_body(body, _), do: body
 
   @doc """

@@ -20,6 +20,7 @@ defmodule Requests.MixProject do
   defp deps do
     [
       {:jason, "~> 1.0", optional: true},
+      {:nimble_csv, "~> 1.0", optional: true},
       {:bypass, "~> 2.1", only: :test}
     ]
   end
