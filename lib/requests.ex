@@ -8,8 +8,10 @@ defmodule Requests do
     
   """
   def get(url, opts \\ []) when is_binary(url) and is_list(opts) do
+    request_headers = with_default_request_headers(Keyword.get(opts, :headers, []))
+
     request_headers =
-      for {name, value} <- Keyword.get(opts, :headers, []) do
+      for {name, value} <- request_headers do
         case name do
           string when is_binary(string) ->
             {String.to_charlist(string), String.to_charlist(value)}
@@ -33,6 +35,14 @@ defmodule Requests do
       {:error, reason} ->
         message = inspect(reason)
         {:error, %RuntimeError{message: message}}
+    end
+  end
+
+  defp with_default_request_headers(headers) do
+    if List.keyfind(headers, "user-agent", 0) || List.keyfind(headers, :user_agent, 0) do
+      headers
+    else
+      [user_agent: "wojtekmach_requests/0.1.0-dev"] ++ headers
     end
   end
 
