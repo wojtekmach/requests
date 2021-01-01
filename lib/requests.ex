@@ -38,11 +38,13 @@ defmodule Requests do
     end
   end
 
+  @default_user_agent "requests/0.1.0-dev Elixir/#{System.version()}"
+
   defp with_default_request_headers(headers) do
     if List.keyfind(headers, "user-agent", 0) || List.keyfind(headers, :user_agent, 0) do
       headers
     else
-      [user_agent: "wojtekmach_requests/0.1.0-dev"] ++ headers
+      [user_agent: @default_user_agent] ++ headers
     end
   end
 
