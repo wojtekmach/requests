@@ -1,15 +1,3 @@
-defmodule Requests.Application do
-  @moduledoc false
-
-  use Application
-
-  @impl true
-  def start(_type, _args) do
-    children = [{Finch, name: Requests.Finch}]
-    Supervisor.start_link(children, strategy: :one_for_one)
-  end
-end
-
 defmodule Requests do
   @doc """
   Make a GET request.
@@ -24,14 +12,29 @@ defmodule Requests do
 
     request_headers =
       for {name, value} <- request_headers do
-        {to_string(name), to_string(value)}
+        case name do
+          string when is_binary(string) ->
+            {String.to_charlist(string), String.to_charlist(value)}
+
+          atom when is_atom(atom) ->
+            name = name |> Atom.to_charlist() |> :string.replace('_', '-')
+            {name, String.to_charlist(value)}
+        end
       end
 
-    request = Finch.build(:get, url, request_headers)
+    request = {url, request_headers}
 
-    with {:ok, response} <- Finch.request(request, Requests.Finch) do
-      body = decode_body(response.body, List.keyfind(response.headers, "content-type", 0))
-      {:ok, %{response | body: body}}
+    case :httpc.request(:get, request, [], body_format: :binary) do
+      {:ok, {{_, status, _}, resp_headers, body}} ->
+        resp_headers =
+          for {key, value} <- resp_headers, do: {List.to_string(key), List.to_string(value)}
+
+        body = decode_body(body, List.keyfind(resp_headers, "content-type", 0))
+        {:ok, %{status: status, headers: resp_headers, body: body}}
+
+      {:error, reason} ->
+        message = inspect(reason)
+        {:error, %RuntimeError{message: message}}
     end
   end
 

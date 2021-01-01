@@ -42,7 +42,7 @@ defmodule RequestsTest do
 
     :ok = Bypass.down(bypass)
 
-    assert_raise Mint.TransportError, ~r/connection refused/, fn ->
+    assert_raise RuntimeError, ~r/:failed_connect/, fn ->
       Requests.get!(base_url <> "/200")
     end
   end
