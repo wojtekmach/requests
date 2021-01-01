@@ -1,6 +1,6 @@
 # Requests
 
-A toy http client based on :httpc.
+A toy http client.
 
 ## License
 
