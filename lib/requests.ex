@@ -1,6 +1,8 @@
 defmodule Requests do
+  @vsn Mix.Project.config()[:version]
+
   @doc """
-  Make a GET request.
+  Makes a GET request.
 
   Options:
 
@@ -38,7 +40,7 @@ defmodule Requests do
     end
   end
 
-  @default_user_agent "requests/0.1.0-dev Elixir/#{System.version()}"
+  @default_user_agent "requests/#{@vsn} Elixir/#{System.version()}"
 
   defp with_default_request_headers(headers) do
     if List.keyfind(headers, "user-agent", 0) || List.keyfind(headers, :user_agent, 0) do
