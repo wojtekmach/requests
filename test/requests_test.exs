@@ -40,6 +40,14 @@ defmodule RequestsTest do
              ~w(2 2)
            ]
 
+    Bypass.expect(bypass, "GET", "/gzip", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-encoding", "gzip")
+      |> Plug.Conn.send_resp(200, :zlib.gzip("foo"))
+    end)
+
+    assert Requests.get!(base_url <> "/gzip").body == "foo"
+
     :ok = Bypass.down(bypass)
 
     assert_raise Mint.TransportError, ~r/connection refused/, fn ->
