@@ -21,7 +21,12 @@ defmodule Requests.MixProject do
 
   defp docs do
     [
-      main: "Requests"
+      main: "Requests",
+      groups_for_functions: [
+        API: &(!&1[:middleware]),
+        "Request middleware": &(&1[:middleware] == :request),
+        "Response middleware": &(&1[:middleware] == :response)
+      ]
     ]
   end
 
