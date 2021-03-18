@@ -77,19 +77,29 @@ defmodule Requests do
   An example is `decompress/2`.
   """
   def request(method, url, body, opts \\ []) when is_binary(url) and is_list(opts) do
-    middleware = [
-      &normalize_request_headers/2,
-      &default_headers/2
-    ]
+    middleware =
+      if Keyword.get(opts, :default_request_middleware, true) do
+        [
+          &normalize_request_headers/2,
+          &default_headers/2
+        ]
+      else
+        []
+      end ++ Keyword.get(opts, :request_middleware, [])
 
     request = Finch.build(method, url, Keyword.get(opts, :headers, []), body)
     request = Enum.reduce(middleware, request, &apply(&1, [&2, opts]))
 
     with {:ok, response} <- Finch.request(request, Requests.Finch) do
-      middleware = [
-        &decompress/2,
-        &response_content_type/2
-      ]
+      middleware =
+        if Keyword.get(opts, :default_response_middleware, true) do
+          [
+            &decompress/2,
+            &response_content_type/2
+          ]
+        else
+          []
+        end ++ Keyword.get(opts, :response_middleware, [])
 
       {:ok, Enum.reduce(middleware, response, &apply(&1, [&2, opts]))}
     end
@@ -124,10 +134,16 @@ defmodule Requests do
 
     * `"user-agent"` - `"requests/#{@vsn}"`
 
+    * `"accept-encoding"` - `"gzip"`
+
   """
   @doc middleware: :request
   def default_headers(request, _opts) do
-    update_in(request.headers, &put_new_header(&1, "user-agent", "requests/#{@vsn}"))
+    update_in(request.headers, fn headers ->
+      headers
+      |> put_new_header("user-agent", "requests/#{@vsn}")
+      |> put_new_header("accept-encoding", "gzip")
+    end)
   end
 
   ## Response middleware
