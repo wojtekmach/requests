@@ -26,7 +26,9 @@ defmodule Requests.MixProject do
         API: &(!&1[:middleware]),
         "Request middleware": &(&1[:middleware] == :request),
         "Response middleware": &(&1[:middleware] == :response)
-      ]
+      ],
+      source_url: "https://github.com/wojtekmach/requests",
+      source_ref: "master"
     ]
   end
 
