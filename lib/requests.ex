@@ -14,7 +14,7 @@ defmodule Requests do
   @vsn Mix.Project.config()[:version]
 
   @moduledoc """
-  Yet another HTTP client.
+  Yet another HTTP client inspired by Python's [Requests](https://requests.readthedocs.io).
 
   ## Features
 
