@@ -18,7 +18,14 @@ defmodule Requests do
 
   Options:
 
-    * `:headers` - list of headers, defaults to `[]`.
+    * `:headers` - list of request headers, defaults to `[]`.
+
+    * `:default_headers` - if `true` (default), includes the default headers:
+
+      * `"user-agent"` - `"requests/#{@vsn}"`
+
+    * `:finch` - name of the `Finch` pool to use, defaults to `Requests.Finch` that is started
+      with the default options.
 
   """
   def get(url, opts \\ []) when is_binary(url) and is_list(opts) do
@@ -31,7 +38,11 @@ defmodule Requests do
         end
       end
 
-    request_headers = with_default_request_headers(request_headers)
+    request_headers =
+      case Keyword.get(opts, :default_headers, true) do
+        true -> with_default_request_headers(request_headers)
+        false -> request_headers
+      end
 
     request = Finch.build(:get, url, request_headers)
 
@@ -50,13 +61,15 @@ defmodule Requests do
     end
   end
 
-  @default_user_agent "requests/#{@vsn} Elixir/#{System.version()}"
-
   defp with_default_request_headers(headers) do
-    if List.keyfind(headers, "user-agent", 0) do
+    put_new_header(headers, "user-agent", "requests/#{@vsn}")
+  end
+
+  defp put_new_header(headers, name, value) do
+    if Enum.any?(headers, fn {key, _} -> String.downcase(key) == name end) do
       headers
     else
-      [{"user-agent", @default_user_agent}] ++ headers
+      [{name, value} | headers]
     end
   end
 
@@ -75,17 +88,15 @@ defmodule Requests do
   end
 
   defp get_content_encoding_header(headers) do
-    Enum.find_value(headers, [], fn {name, value} ->
-      if String.downcase(name) == "content-encoding" do
-        value
-        |> String.downcase()
-        |> String.split(",", trim: true)
-        |> Stream.map(&String.trim/1)
-        |> Enum.reverse()
-      else
-        nil
-      end
-    end)
+    if value = get_header(headers, "content-encoding") do
+      value
+      |> String.downcase()
+      |> String.split(",", trim: true)
+      |> Stream.map(&String.trim/1)
+      |> Enum.reverse()
+    else
+      []
+    end
   end
 
   defp decompress_body(body, algorithms) do
@@ -105,11 +116,7 @@ defmodule Requests do
     do: raise("unsupported decompression algorithm: #{inspect(algorithm)}")
 
   defp content_type(_request, response) do
-    content_type =
-      with {_, value} <- List.keyfind(response.headers, "content-type", 0) do
-        value
-      end
-
+    content_type = get_header(response.headers, "content-type")
     %{response | body: decode_body(response.body, content_type)}
   end
 
@@ -124,4 +131,14 @@ defmodule Requests do
   end
 
   defp decode_body(body, _), do: body
+
+  defp get_header(headers, name) do
+    Enum.find_value(headers, nil, fn {key, value} ->
+      if String.downcase(key) == name do
+        value
+      else
+        nil
+      end
+    end)
+  end
 end
