@@ -19,8 +19,10 @@ defmodule Requests do
   ## Features
 
     * Extensible via request and response middlewares
-    * Automatic decompression (via `decompress/2`)
-    * Automatic body encoding/decoding (via `encode_request_body/2`, `decode_response_body/2`)
+    * Automatic compression/decompression based on `content-encoding` header (via `compress/2` and
+      `decompress/2`)
+    * Automatic body encoding/decoding based on `content-type` (via `encode_request_body/2` and
+      `decode_response_body/2`)
 
   ## Examples
 
@@ -91,6 +93,7 @@ defmodule Requests do
       * `normalize_request_headers/2`
       * `default_headers/2`
       * `encode_request_body/2`
+      * `compress/2`
 
     * `:response_middleware` - list of middleware to run the response through, defaults to `[]`.
 
@@ -128,7 +131,8 @@ defmodule Requests do
         [
           &normalize_request_headers/2,
           &default_headers/2,
-          &encode_request_body/2
+          &encode_request_body/2,
+          &compress/2
         ]
       else
         []
@@ -194,7 +198,7 @@ defmodule Requests do
   end
 
   @doc """
-  Encodes the reqeuest body based on the content-type header.
+  Encodes the request body based on the content-type header.
 
   ## Options
 
@@ -239,27 +243,44 @@ defmodule Requests do
     %{request | body: body}
   end
 
+  @doc """
+  Compresses the request body based on the `content-encoding` header.
+
+  Supported values: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
+  """
+  @doc middleware: :request
+  def compress(request, _opts) do
+    compression_algorithms = get_content_encoding_header(request.headers)
+    update_in(request.body, &compress_body(&1, compression_algorithms))
+  end
+
+  defp compress_body(body, algorithms) do
+    Enum.reduce(algorithms, body, &compress_with_algorithm/2)
+  end
+
+  defp compress_with_algorithm(gzip, body) when gzip in ["gzip", "x-gzip"],
+    do: :zlib.gzip(body)
+
+  defp compress_with_algorithm("deflate", body),
+    do: :zlib.zip(body)
+
+  defp compress_with_algorithm("identity", body),
+    do: body
+
+  defp compress_with_algorithm(algorithm, _body),
+    do: raise("unsupported compression algorithm: #{inspect(algorithm)}")
+
   ## Response middleware
 
   @doc """
-  Decompresses the response body.
+  Decompresses the response body based on the `content-encoding` header.
+
+  Supported values: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
   """
   @doc middleware: :response
   def decompress(response, _opts) do
     compression_algorithms = get_content_encoding_header(response.headers)
     update_in(response.body, &decompress_body(&1, compression_algorithms))
-  end
-
-  defp get_content_encoding_header(headers) do
-    if value = get_header(headers, "content-encoding") do
-      value
-      |> String.downcase()
-      |> String.split(",", trim: true)
-      |> Stream.map(&String.trim/1)
-      |> Enum.reverse()
-    else
-      []
-    end
   end
 
   defp decompress_body(body, algorithms) do
@@ -339,6 +360,18 @@ defmodule Requests do
       headers
     else
       [{name, value} | headers]
+    end
+  end
+
+  defp get_content_encoding_header(headers) do
+    if value = get_header(headers, "content-encoding") do
+      value
+      |> String.downcase()
+      |> String.split(",", trim: true)
+      |> Stream.map(&String.trim/1)
+      |> Enum.reverse()
+    else
+      []
     end
   end
 end

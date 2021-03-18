@@ -35,7 +35,7 @@ defmodule RequestsTest do
              Requests.get!(c.url <> "/user-agent", default_request_middleware: false).body
   end
 
-  test "json", c do
+  test "encoding/decoding json", c do
     Bypass.expect(c.bypass, "POST", "/json", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
       body = body |> Jason.decode!() |> Jason.encode_to_iodata!()
@@ -50,7 +50,7 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/json", body, opts).body == body
   end
 
-  test "csv", c do
+  test "encoding/decoding csv", c do
     Bypass.expect(c.bypass, "POST", "/csv", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
 
@@ -74,22 +74,25 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/csv", body, opts).body == body
   end
 
-  test "decompress", c do
-    Bypass.expect(c.bypass, "GET", "/gzip", fn conn ->
+  test "compress/decompress", c do
+    Bypass.expect(c.bypass, "POST", "/deflate+gzip", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      body =
+        body
+        |> :zlib.unzip()
+        |> :zlib.gunzip()
+        |> :zlib.gzip()
+        |> :zlib.zip()
+
       conn
-      |> Plug.Conn.put_resp_header("content-encoding", "gzip")
-      |> Plug.Conn.send_resp(200, :zlib.gzip("foo"))
+      |> Plug.Conn.put_resp_header("content-encoding", "gzip,deflate")
+      |> Plug.Conn.send_resp(200, body)
     end)
 
-    assert Requests.get!(c.url <> "/gzip").body == "foo"
-
-    Bypass.expect(c.bypass, "GET", "/deflate+gzip", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_header("content-encoding", "deflate,gzip")
-      |> Plug.Conn.send_resp(200, "foo" |> :zlib.zip() |> :zlib.gzip())
-    end)
-
-    assert Requests.get!(c.url <> "/deflate+gzip").body == "foo"
+    body = "foo"
+    opts = [headers: [content_encoding: "deflate,gzip"]]
+    assert Requests.post!(c.url <> "/deflate+gzip", body, opts).body == body
   end
 
   test "errors", c do
