@@ -212,7 +212,7 @@ defmodule Requests do
       end)
 
     csv_encoder =
-      Keyword.get_lazy(opts, :json_decoder, fn ->
+      Keyword.get_lazy(opts, :csv_encoder, fn ->
         if Code.ensure_loaded?(NimbleCSV) do
           &NimbleCSV.RFC4180.dump_to_iodata/1
         end
@@ -220,10 +220,10 @@ defmodule Requests do
 
     body =
       case get_header(request.headers, "content-type") do
-        "application/json" <> _ ->
+        "application/json" <> _ when json_encoder != nil ->
           json_encoder.(request.body)
 
-        "text/csv" <> _ ->
+        "text/csv" <> _ when csv_encoder != nil ->
           csv_encoder.(request.body)
 
         _ ->
@@ -303,10 +303,10 @@ defmodule Requests do
 
     body =
       case get_header(response.headers, "content-type") do
-        "application/json" <> _ ->
+        "application/json" <> _ when json_decoder != nil ->
           json_decoder.(response.body)
 
-        "text/csv" <> _ ->
+        "text/csv" <> _ when csv_decoder != nil ->
           csv_decoder.(response.body)
 
         _ ->
