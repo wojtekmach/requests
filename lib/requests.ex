@@ -49,6 +49,25 @@ defmodule Requests do
   end
 
   @doc """
+  Makes a POST request.
+
+  See `request/4` for possible options.
+  """
+  def post(url, body, opts \\ []) do
+    request(:post, url, body, opts)
+  end
+
+  @doc """
+  See `post/3`.
+  """
+  def post!(url, body, opts \\ []) do
+    case post(url, body, opts) do
+      {:ok, response} -> response
+      {:error, exception} -> raise exception
+    end
+  end
+
+  @doc """
   Makes a HTTP request.
 
   Options:
