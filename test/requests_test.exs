@@ -36,29 +36,42 @@ defmodule RequestsTest do
   end
 
   test "json", c do
-    Bypass.expect(c.bypass, "GET", "/json", fn conn ->
+    Bypass.expect(c.bypass, "POST", "/json", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      body = body |> Jason.decode!() |> Jason.encode_to_iodata!()
+
       conn
       |> put_resp_content_type("application/json; charset=utf-8")
-      |> send_resp(200, Jason.encode!(%{"x" => 1}))
+      |> send_resp(200, body)
     end)
 
-    assert Requests.get!(c.url <> "/json").body == %{"x" => 1}
+    body = %{"x" => 1}
+    opts = [headers: [content_type: "application/json"]]
+    assert Requests.post!(c.url <> "/json", body, opts).body == body
   end
 
   test "csv", c do
-    Bypass.expect(c.bypass, "GET", "/csv", fn conn ->
-      body = NimbleCSV.RFC4180.dump_to_iodata([~w(x y), ~w(1 1), ~w(2 2)])
+    Bypass.expect(c.bypass, "POST", "/csv", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      body =
+        body
+        |> NimbleCSV.RFC4180.parse_string(skip_headers: false)
+        |> NimbleCSV.RFC4180.dump_to_iodata()
 
       conn
       |> put_resp_content_type("text/csv; charset=utf-8")
       |> send_resp(200, body)
     end)
 
-    assert Requests.get!(c.url <> "/csv").body == [
-             ~w(x y),
-             ~w(1 1),
-             ~w(2 2)
-           ]
+    body = [
+      ~w(x y),
+      ~w(1 1),
+      ~w(2 2)
+    ]
+
+    opts = [headers: [content_type: "text/csv"]]
+    assert Requests.post!(c.url <> "/csv", body, opts).body == body
   end
 
   test "decompress", c do

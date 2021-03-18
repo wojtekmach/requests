@@ -20,7 +20,7 @@ defmodule Requests do
 
     * Extensible via request and response middlewares
     * Automatic decompression (via `decompress/2`)
-    * Automatic decoding (via `decode_response_body/2`)
+    * Automatic body encoding/decoding (via `encode_request_body/2`, `decode_response_body/2`)
 
   ## Examples
 
@@ -84,6 +84,7 @@ defmodule Requests do
 
       * `normalize_request_headers/2`
       * `default_headers/2`
+      * `encode_request_body/2`
 
     * `:response_middleware` - list of middleware to run the response through, defaults to `[]`.
 
@@ -97,7 +98,7 @@ defmodule Requests do
 
   ## Request middleware
 
-  A request middleware is a function that two arguments:
+  A request middleware is a function that two arguments and returns a possibly updated request:
 
   - a `Finch.Request` struct
   - an `opts` keywords list
@@ -106,7 +107,7 @@ defmodule Requests do
 
   ## Response middleware
 
-  A response middleware is a function that two arguments:
+  A response middleware is a function that two arguments and returns a possibly updated response:
 
   - a `Finch.Response` struct
   - an `opts` keywords list
@@ -118,7 +119,8 @@ defmodule Requests do
       if Keyword.get(opts, :default_request_middleware, true) do
         [
           &normalize_request_headers/2,
-          &default_headers/2
+          &default_headers/2,
+          &encode_request_body/2
         ]
       else
         []
@@ -181,6 +183,50 @@ defmodule Requests do
       |> put_new_header("user-agent", "requests/#{@vsn}")
       |> put_new_header("accept-encoding", "gzip")
     end)
+  end
+
+  @doc """
+  Encodes the reqeuest body based on the content-type header.
+
+  ## Options
+
+    * `:json_encoder` - if set, used on the `"application/json*"` content type. Defaults to
+      `&Jason.encode_to_iodata!/1` if `jason` dependency is installed.
+
+    * `:csv_encoder` - if set, used on the `"text/csv*"` content type. Defaults to
+      `&NimbleCSV.RFC4180.dump_to_iodata/1` if `nimble_csv` dependency is
+      installed.
+
+  """
+  @doc middleware: :request
+  def encode_request_body(request, opts) do
+    json_encoder =
+      Keyword.get_lazy(opts, :json_encoder, fn ->
+        if Code.ensure_loaded?(Jason) do
+          &Jason.encode_to_iodata!/1
+        end
+      end)
+
+    csv_encoder =
+      Keyword.get_lazy(opts, :json_decoder, fn ->
+        if Code.ensure_loaded?(NimbleCSV) do
+          &NimbleCSV.RFC4180.dump_to_iodata/1
+        end
+      end)
+
+    body =
+      case get_header(request.headers, "content-type") do
+        "application/json" <> _ ->
+          json_encoder.(request.body)
+
+        "text/csv" <> _ ->
+          csv_encoder.(request.body)
+
+        _ ->
+          request.body
+      end
+
+    %{request | body: body}
   end
 
   ## Response middleware
