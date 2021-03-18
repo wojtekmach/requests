@@ -19,19 +19,19 @@ defmodule Requests do
   Options:
 
     * `:headers` - list of headers, defaults to `[]`.
-    
+
   """
   def get(url, opts \\ []) when is_binary(url) and is_list(opts) do
-    request_headers = with_default_request_headers(Keyword.get(opts, :headers, []))
-
     request_headers =
-      for {name, value} <- request_headers do
+      for {name, value} <- Keyword.get(opts, :headers, []) do
         if is_atom(name) do
           {name |> Atom.to_string() |> String.replace("_", "-"), value}
         else
           {name, value}
         end
       end
+
+    request_headers = with_default_request_headers(request_headers)
 
     request = Finch.build(:get, url, request_headers)
 
@@ -53,10 +53,10 @@ defmodule Requests do
   @default_user_agent "requests/#{@vsn} Elixir/#{System.version()}"
 
   defp with_default_request_headers(headers) do
-    if List.keyfind(headers, "user-agent", 0) || List.keyfind(headers, :user_agent, 0) do
+    if List.keyfind(headers, "user-agent", 0) do
       headers
     else
-      [user_agent: @default_user_agent] ++ headers
+      [{"user-agent", @default_user_agent}] ++ headers
     end
   end
 
