@@ -58,6 +58,8 @@ defmodule Requests do
       * `decompress/2`
       * `response_content_type/2`
 
+  The `opts` keywords list is passed to each middleware.
+
   ## Request middleware
 
   A request middleware is a function that two arguments:
@@ -188,31 +190,46 @@ defmodule Requests do
   @doc """
   Decodes the response body based on the content-type header.
 
-  Currently these `"content-type"` values are supported:
+  ## Options
 
-    * `"application/json*"` - using `Jason.decode!/1` (if Jason is available)
+    * `:json_decoder` - if set, used on the `"application/json*"` content type. Defaults to
+      `&Jason.decode/1` if `jason` dependency is installed.
 
-    * `"text/csv*"` - using `NimbleCSV.RFC4180.parse_string(body, skip_headers: false)`
-      (if NimbleCSV is available)
+    * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
+      `&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)` if `nimble_csv` dependency is
+      installed.
 
   """
   @doc middleware: :response
-  def response_content_type(response, _opts) do
-    content_type = get_header(response.headers, "content-type")
-    %{response | body: decode_body(response.body, content_type)}
-  end
+  def response_content_type(response, opts) do
+    json_decoder =
+      Keyword.get_lazy(opts, :json_decoder, fn ->
+        if Code.ensure_loaded?(Jason) do
+          &Jason.decode!/1
+        end
+      end)
 
-  if Code.ensure_loaded?(Jason) do
-    defp decode_body(body, "application/json" <> _), do: Jason.decode!(body)
-  end
+    csv_decoder =
+      Keyword.get_lazy(opts, :csv_decoder, fn ->
+        if Code.ensure_loaded?(NimbleCSV) do
+          &NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)
+        end
+      end)
 
-  if Code.ensure_loaded?(NimbleCSV) do
-    defp decode_body(body, "text/csv" <> _) do
-      NimbleCSV.RFC4180.parse_string(body, skip_headers: false)
-    end
-  end
+    body =
+      case get_header(response.headers, "content-type") do
+        "application/json" <> _ ->
+          json_decoder.(response.body)
 
-  defp decode_body(body, _), do: body
+        "text/csv" <> _ ->
+          csv_decoder.(response.body)
+
+        _ ->
+          response.body
+      end
+
+    %{response | body: body}
+  end
 
   ## Utilities
 
