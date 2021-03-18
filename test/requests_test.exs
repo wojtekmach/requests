@@ -62,7 +62,7 @@ defmodule RequestsTest do
            ]
   end
 
-  test "gzip", c do
+  test "decompress", c do
     Bypass.expect(c.bypass, "GET", "/gzip", fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-encoding", "gzip")
@@ -70,6 +70,14 @@ defmodule RequestsTest do
     end)
 
     assert Requests.get!(c.url <> "/gzip").body == "foo"
+
+    Bypass.expect(c.bypass, "GET", "/deflate+gzip", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-encoding", "deflate,gzip")
+      |> Plug.Conn.send_resp(200, "foo" |> :zlib.zip() |> :zlib.gzip())
+    end)
+
+    assert Requests.get!(c.url <> "/deflate+gzip").body == "foo"
   end
 
   test "errors", c do
