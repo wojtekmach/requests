@@ -31,7 +31,8 @@ defmodule RequestsTest do
 
     assert "custom" = Requests.get!(c.url <> "/user-agent", headers: [user_agent: "custom"]).body
 
-    assert "mint/" <> _ = Requests.get!(c.url <> "/user-agent", default_headers: false).body
+    assert "mint/" <> _ =
+             Requests.get!(c.url <> "/user-agent", default_request_middleware: false).body
   end
 
   test "json", c do
