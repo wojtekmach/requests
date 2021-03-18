@@ -22,18 +22,16 @@ defmodule RequestsTest do
   end
 
   test "user agent", c do
-    pid = self()
-
     Bypass.expect(c.bypass, "GET", "/user-agent", fn conn ->
-      send(pid, {:user_agent, get_req_header(conn, "user-agent")})
-      send_resp(conn, 200, "ok")
+      [user_agent | _] = get_req_header(conn, "user-agent")
+      send_resp(conn, 200, user_agent)
     end)
 
-    assert Requests.get!(c.url <> "/user-agent").status == 200
-    assert_received {:user_agent, ["requests/" <> _]}
+    assert "requests/" <> _ = Requests.get!(c.url <> "/user-agent").body
 
-    assert Requests.get!(c.url <> "/user-agent", headers: [user_agent: "custom"]).status == 200
-    assert_received {:user_agent, ["custom"]}
+    assert "custom" = Requests.get!(c.url <> "/user-agent", headers: [user_agent: "custom"]).body
+
+    assert "mint/" <> _ = Requests.get!(c.url <> "/user-agent", default_headers: false).body
   end
 
   test "json", c do
