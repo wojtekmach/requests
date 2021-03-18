@@ -98,7 +98,8 @@ defmodule Requests do
 
   ## Request middleware
 
-  A request middleware is a function that two arguments and returns a possibly updated request:
+  A request middleware is a function that takes two arguments and returns a possibly updated
+  request:
 
   - a `Finch.Request` struct
   - an `opts` keywords list
@@ -107,7 +108,8 @@ defmodule Requests do
 
   ## Response middleware
 
-  A response middleware is a function that two arguments and returns a possibly updated response:
+  A response middleware is a function that takes two arguments and returns a possibly updated
+  response:
 
   - a `Finch.Response` struct
   - an `opts` keywords list
