@@ -14,7 +14,7 @@ defmodule Requests do
   @vsn Mix.Project.config()[:version]
 
   @moduledoc """
-  Yet another HTTP client inspired by Python's [Requests](https://requests.readthedocs.io).
+  Yet another HTTP client.
 
   ## Features
 
@@ -26,6 +26,12 @@ defmodule Requests do
 
       iex> Requests.get!("https://api.github.com/repos/elixir-lang/elixir").body["description"]
       "Elixir is a dynamic, functional language designed for building scalable and maintainable applications"
+
+  ## Credits
+
+    * [Requests](https://requests.readthedocs.io)
+    * [Tesla](https://github.com/teamon/tesla)
+    * [Finch](https://github.com/keathley/finch) (and [Mint](https://github.com/elixir-mint/mint) & [NimblePool](https://github.com/dashbitco/nimble_pool)!)
 
   """
 
