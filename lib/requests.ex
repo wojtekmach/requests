@@ -13,6 +13,22 @@ end
 defmodule Requests do
   @vsn Mix.Project.config()[:version]
 
+  @moduledoc """
+  Yet another HTTP client.
+
+  ## Features
+
+    * Extensible via request and response middlewares
+    * Automatic decompression (via `decompress/2`)
+    * Automatic decoding (via `decode_response_body/2`)
+
+  ## Examples
+
+      iex> Requests.get!("https://api.github.com/repos/elixir-lang/elixir").body["description"]
+      "Elixir is a dynamic, functional language designed for building scalable and maintainable applications"
+
+  """
+
   @doc """
   Makes a GET request.
 
@@ -56,7 +72,7 @@ defmodule Requests do
       the response middleware list:
 
       * `decompress/2`
-      * `response_content_type/2`
+      * `decode_response_body/2`
 
   The `opts` keywords list is passed to each middleware.
 
@@ -64,8 +80,8 @@ defmodule Requests do
 
   A request middleware is a function that two arguments:
 
-  - `request` struct
-  - `opts`
+  - a `Finch.Request` struct
+  - an `opts` keywords list
 
   An example is `normalize_request_headers/2`.
 
@@ -73,8 +89,8 @@ defmodule Requests do
 
   A response middleware is a function that two arguments:
 
-  - `response` struct
-  - `opts`
+  - a `Finch.Response` struct
+  - an `opts` keywords list
 
   An example is `decompress/2`.
   """
@@ -97,7 +113,7 @@ defmodule Requests do
         if Keyword.get(opts, :default_response_middleware, true) do
           [
             &decompress/2,
-            &response_content_type/2
+            &decode_response_body/2
           ]
         else
           []
@@ -201,7 +217,7 @@ defmodule Requests do
 
   """
   @doc middleware: :response
-  def response_content_type(response, opts) do
+  def decode_response_body(response, opts) do
     json_decoder =
       Keyword.get_lazy(opts, :json_decoder, fn ->
         if Code.ensure_loaded?(Jason) do
