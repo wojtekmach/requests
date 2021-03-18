@@ -191,10 +191,12 @@ defmodule Requests do
   ## Options
 
     * `:json_encoder` - if set, used on the `"application/json*"` content type. Defaults to
-      `&Jason.encode_to_iodata!/1` if `jason` dependency is installed.
+      [`&Jason.encode_to_iodata!/1`](`Jason.encode_to_iodata!/1`)
+      if `jason` dependency is installed.
 
     * `:csv_encoder` - if set, used on the `"text/csv*"` content type. Defaults to
-      `&NimbleCSV.RFC4180.dump_to_iodata/1` if `nimble_csv` dependency is
+      [`&NimbleCSV.RFC4180.dump_to_iodata/1`](`NimbleCSV.RFC4180.dump_to_iodata/1`)
+      if `nimble_csv` dependency is
       installed.
 
   """
@@ -274,11 +276,11 @@ defmodule Requests do
   ## Options
 
     * `:json_decoder` - if set, used on the `"application/json*"` content type. Defaults to
-      `&Jason.decode/1` if `jason` dependency is installed.
+      [`&Jason.decode/1`](`Jason.decode/1`) if `jason` dependency is installed.
 
     * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
-      `&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)` if `nimble_csv` dependency is
-      installed.
+      [`&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)`](`NimbleCSV.RFC4180.parse_string/2`)
+      if `nimble_csv` dependency is installed.
 
   """
   @doc middleware: :response
