@@ -33,9 +33,9 @@ defmodule Requests do
       "Elixir is a dynamic, functional language designed for building scalable and maintainable applications"
 
       iex> data = %{files: %{"hello.txt" => %{"content" => "world"}}}
-      iex> headers = [accept: "application/vnd.github.v3+json", authorization: "Bearer " <> System.fetch_env!("GITHUB_TOKEN")]
-      iex> Requests.post!("https://api.github.com/gists", {:json, data}, headers: headers)
-      %Finch.Response{status: 201, ...}
+      iex> headers = [authorization: "Bearer " <> System.fetch_env!("GITHUB_TOKEN")]
+      iex> Requests.post!("https://api.github.com/gists", {:json, data}, headers: headers).status
+      201
 
   ## Credits
 
@@ -115,21 +115,24 @@ defmodule Requests do
 
   ## Request middleware
 
-  A request middleware is a function that takes two arguments and returns a possibly updated
+  A request middleware is a function that takes two arguments:
   request:
 
   - a `Finch.Request` struct
   - an `opts` keywords list
 
+  and returns a possibly updated.
+
   An example is `compress/2`.
 
   ## Response middleware
 
-  A response middleware is a function that takes two arguments and returns a possibly updated
-  response:
+  A response middleware is a function that takes two arguments:
 
   - a `Finch.Response` struct
   - an `opts` keywords list
+
+  and returns a possibly updated response.
 
   An example is `decompress/2`.
   """
@@ -206,9 +209,9 @@ defmodule Requests do
   end
 
   @doc """
-  Encodes the request body based on it's shape.
+  Encodes the request body based on its shape.
 
-  If body is of the following shape, it's encoded and it's `content-type` set
+  If body is of the following shape, it's encoded and its `content-type` set
   accordingly. Otherwise it's unchanged.
 
   | Shape           | Encoder         | Content-Type                          |
@@ -358,7 +361,7 @@ defmodule Requests do
     do: raise("unsupported decompression algorithm: #{inspect(algorithm)}")
 
   @doc """
-  Decodes the response body based on the content-type header.
+  Decodes the response body based on the `content-type` header.
 
   ## Options
 
