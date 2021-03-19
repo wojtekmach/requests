@@ -32,6 +32,11 @@ defmodule Requests do
       iex> Requests.get!("https://api.github.com/repos/elixir-lang/elixir").body["description"]
       "Elixir is a dynamic, functional language designed for building scalable and maintainable applications"
 
+      iex> data = %{files: %{"hello.txt" => %{"content" => "world"}}}
+      iex> headers = [accept: "application/vnd.github.v3+json", authorization: "Bearer " <> System.fetch_env!("GITHUB_TOKEN")]
+      iex> Requests.post!("https://api.github.com/gists", {:json, data}, headers: headers)
+      %Finch.Response{status: 201, ...}
+
   ## Credits
 
     * [Requests](https://requests.readthedocs.io)
