@@ -32,10 +32,8 @@ defmodule Requests do
       iex> Requests.get!("https://api.github.com/repos/elixir-lang/elixir").body["description"]
       "Elixir is a dynamic, functional language designed for building scalable and maintainable applications"
 
-      iex> data = %{files: %{"hello.txt" => %{"content" => "world"}}}
-      iex> headers = [authorization: "Bearer " <> System.fetch_env!("GITHUB_TOKEN")]
-      iex> Requests.post!("https://api.github.com/gists", {:json, data}, headers: headers).status
-      201
+      iex> Requests.post!("https://httpbin.org/post", {:form, comments: "hello!"}).body["form"]
+      %{"comments" => "hello!"}
 
   ## Credits
 
@@ -233,15 +231,8 @@ defmodule Requests do
 
   ## Examples
 
-      iex> Requests.post!("https://httpbin.org/post", {:form, custname: "Alice"})
-      %Finch.Response{
-        status: 200,
-        headers: [{"content-type", "application/json"}, ...],
-        body: %{
-          "form" => %{"custname" => "Alice"},
-          ...
-        }
-      }
+      iex> Requests.post!("https://httpbin.org/post", {:form, comments: "hello!"}).body["form"]
+      %{"comments" => "hello!"}
 
   """
   @doc middleware: :request
