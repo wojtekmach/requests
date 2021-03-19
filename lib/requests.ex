@@ -301,7 +301,11 @@ defmodule Requests do
   end
 
   defp encode(request, data, encoder, content_type) do
-    %{request | body: encoder.(data), headers: [{"content-type", content_type} | request.headers]}
+    %{
+      request
+      | body: encoder.(data),
+        headers: put_new_header(request.headers, "content-type", content_type)
+    }
   end
 
   @doc """
