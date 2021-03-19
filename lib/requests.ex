@@ -11,6 +11,8 @@ defmodule Requests.Application do
 end
 
 defmodule Requests do
+  require Logger
+
   @vsn Mix.Project.config()[:version]
 
   @moduledoc """
@@ -19,10 +21,11 @@ defmodule Requests do
   ## Features
 
     * Extensible via request and response middlewares
-    * Automatic compression/decompression based on `content-encoding` header (via `compress/2` and
-      `decompress/2`)
-    * Automatic body encoding/decoding based on `content-type` (via `encode_request_body/2` and
-      `decode_response_body/2`)
+
+    * Automatic body encoding/decoding (via `encode_request_body/2` and `decode_response_body/2`
+      middleware)
+
+    * Automatic compression/decompression (via the `compress/2` and `decompress/2` middleware)
 
   ## Examples
 
@@ -113,7 +116,7 @@ defmodule Requests do
   - a `Finch.Request` struct
   - an `opts` keywords list
 
-  An example is `normalize_request_headers/2`.
+  An example is `compress/2`.
 
   ## Response middleware
 
@@ -198,49 +201,99 @@ defmodule Requests do
   end
 
   @doc """
-  Encodes the request body based on the content-type header.
+  Encodes the request body based on it's shape.
+
+  If body is of the following shape, it's encoded and it's `content-type` set
+  accordingly. Otherwise it's unchanged.
+
+  | Shape           | Encoder         | Content-Type                          |
+  | --------------- | --------------- | ------------------------------------- |
+  | `{:form, data}` | `:form_encoder` | `"application/x-www-form-urlencoded"` |
+  | `{:json, data}` | `:json_encoder` | `"application/json"`                  |
+  | `{:csv, data}`  | `:csv_encoder`  | `"text/csv"`                          |
 
   ## Options
 
-    * `:json_encoder` - if set, used on the `"application/json*"` content type. Defaults to
-      [`&Jason.encode_to_iodata!/1`](`Jason.encode_to_iodata!/1`)
-      if `jason` dependency is installed.
+    * `:form_encoder` - defaults to [`&URI.encode_query/1`](`URI.encode_query/1`).
 
-    * `:csv_encoder` - if set, used on the `"text/csv*"` content type. Defaults to
-      [`&NimbleCSV.RFC4180.dump_to_iodata/1`](`NimbleCSV.RFC4180.dump_to_iodata/1`)
-      if `nimble_csv` dependency is
-      installed.
+    * `:json_encoder` - defaults to [`&Jason.encode_to_iodata!/1`](`Jason.encode_to_iodata!/1`).
+
+    * `:csv_encoder` - defaults to [`&NimbleCSV.RFC4180.dump_to_iodata/1`](`NimbleCSV.RFC4180.dump_to_iodata/1`).
+
+  ## Examples
+
+      iex> Requests.post!("https://httpbin.org/post", {:form, custname: "Alice"})
+      %Finch.Response{
+        status: 200,
+        headers: [{"content-type", "application/json"}, ...],
+        body: %{
+          "form" => %{"custname" => "Alice"},
+          ...
+        }
+      }
 
   """
   @doc middleware: :request
   def encode_request_body(request, opts) do
-    json_encoder =
-      Keyword.get_lazy(opts, :json_encoder, fn ->
-        if Code.ensure_loaded?(Jason) do
-          &Jason.encode_to_iodata!/1
-        end
-      end)
+    case request.body do
+      {:form, data} ->
+        encode(request, data, &URI.encode_query/1, "application/x-www-form-urlencoded")
 
-    csv_encoder =
-      Keyword.get_lazy(opts, :csv_encoder, fn ->
-        if Code.ensure_loaded?(NimbleCSV) do
-          &NimbleCSV.RFC4180.dump_to_iodata/1
-        end
-      end)
+      {:json, data} ->
+        encoder =
+          Keyword.get_lazy(opts, :json_encoder, fn ->
+            unless Code.ensure_loaded?(Jason) do
+              Logger.error("""
+              Could not find jason dependency.
 
-    body =
-      case get_header(request.headers, "content-type") do
-        "application/json" <> _ when json_encoder != nil ->
-          json_encoder.(request.body)
+              Please add it to your dependencies:
 
-        "text/csv" <> _ when csv_encoder != nil ->
-          csv_encoder.(request.body)
+                  {:jason, "~> 1.0"}
 
-        _ ->
-          request.body
-      end
+              Or set your own JSON encoder:
 
-    %{request | body: body}
+                  Requests.post!(url, {:json, data}, json_encoder: &MyEncoder.encode!/1)
+              """)
+
+              raise "missing jason dependency"
+            end
+
+            &Jason.encode_to_iodata!/1
+          end)
+
+        encode(request, data, encoder, "application/json")
+
+      {:csv, data} ->
+        encoder =
+          Keyword.get_lazy(opts, :json_encoder, fn ->
+            unless Code.ensure_loaded?(NimbleCSV) do
+              Logger.error("""
+              Could not find nimble_csv dependency.
+
+              Please add it to your dependencies:
+
+                  {:nimble_csv, "~> 1.0"}
+
+              Or set your own JSON encoder:
+
+                  Requests.post!(url, {:csv, data}, csv_encoder: &MyEncoder.encode!/1)
+              """)
+
+              raise "missing nimble_csv dependency"
+            end
+
+            &NimbleCSV.RFC4180.dump_to_iodata/1
+          end)
+
+        encode(request, data, encoder, "text/csv")
+
+      _ ->
+        request
+    end
+  end
+
+  defp encode(request, data, encoder, content_type) do
+    %{request | body: encoder.(data), headers: [{"content-type", content_type} | request.headers]}
   end
 
   @doc """

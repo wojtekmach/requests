@@ -35,6 +35,21 @@ defmodule RequestsTest do
              Requests.get!(c.url <> "/user-agent", default_request_middleware: false).body
   end
 
+  test "form-encoding", c do
+    Bypass.expect(c.bypass, "POST", "/form", fn conn ->
+      ["application/x-www-form-urlencoded"] = get_req_header(conn, "content-type")
+      conn = Plug.Parsers.call(conn, Plug.Parsers.init(parsers: [:urlencoded]))
+
+      assert conn.params == %{"x" => "y"}
+
+      send_resp(conn, 200, "ok")
+    end)
+
+    body = %{"x" => "y"}
+    opts = [headers: [content_type: "application/x-www-form-urlencoded"]]
+    assert Requests.post!(c.url <> "/form", body, opts).status == 200
+  end
+
   test "encoding/decoding json", c do
     Bypass.expect(c.bypass, "POST", "/json", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -46,8 +61,7 @@ defmodule RequestsTest do
     end)
 
     body = %{"x" => 1}
-    opts = [headers: [content_type: "application/json"]]
-    assert Requests.post!(c.url <> "/json", body, opts).body == body
+    assert Requests.post!(c.url <> "/json", {:json, body}).body == body
   end
 
   test "encoding/decoding csv", c do
