@@ -46,8 +46,7 @@ defmodule RequestsTest do
     end)
 
     body = %{"x" => "y"}
-    opts = [headers: [content_type: "application/x-www-form-urlencoded"]]
-    assert Requests.post!(c.url <> "/form", body, opts).status == 200
+    assert Requests.post!(c.url <> "/form", {:form, body}).status == 200
   end
 
   test "encoding/decoding json", c do
@@ -84,8 +83,7 @@ defmodule RequestsTest do
       ~w(2 2)
     ]
 
-    opts = [headers: [content_type: "text/csv"]]
-    assert Requests.post!(c.url <> "/csv", body, opts).body == body
+    assert Requests.post!(c.url <> "/csv", {:csv, body}).body == body
   end
 
   test "compress/decompress", c do
