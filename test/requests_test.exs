@@ -107,6 +107,29 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/deflate+gzip", body, opts).body == body
   end
 
+  test "stream request", c do
+    Bypass.expect(c.bypass, "POST", "/stream-request", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      body =
+        body
+        |> NimbleCSV.RFC4180.parse_string(skip_headers: false)
+        |> NimbleCSV.RFC4180.dump_to_iodata()
+
+      conn
+      |> put_resp_content_type("text/csv; charset=utf-8")
+      |> send_resp(200, body)
+    end)
+
+    body = [
+      ~w(x y),
+      ~w(1 1),
+      ~w(2 2)
+    ]
+
+    assert Requests.post!(c.url <> "/stream-request", {:csv, {:stream, body}}).body == body
+  end
+
   test "errors", c do
     :ok = Bypass.down(c.bypass)
 

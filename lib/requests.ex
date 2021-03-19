@@ -214,11 +214,12 @@ defmodule Requests do
   If body is of the following shape, it's encoded and its `content-type` set
   accordingly. Otherwise it's unchanged.
 
-  | Shape           | Encoder         | Content-Type                          |
-  | --------------- | --------------- | ------------------------------------- |
-  | `{:form, data}` | `:form_encoder` | `"application/x-www-form-urlencoded"` |
-  | `{:json, data}` | `:json_encoder` | `"application/json"`                  |
-  | `{:csv, data}`  | `:csv_encoder`  | `"text/csv"`                          |
+  | Shape                     | Encoder               | Content-Type                          |
+  | ------------------------- | ---------------       | ------------------------------------- |
+  | `{:form, data}`           | `:form_encoder`       | `"application/x-www-form-urlencoded"` |
+  | `{:json, data}`           | `:json_encoder`       | `"application/json"`                  |
+  | `{:csv, rows}`            | `:csv_encoder`        | `"text/csv"`                          |
+  | `{:csv, {:stream, rows}}` | `:csv_stream_encoder` | `"text/csv"`                          |
 
   ## Options
 
@@ -227,6 +228,8 @@ defmodule Requests do
     * `:json_encoder` - defaults to [`&Jason.encode_to_iodata!/1`](`Jason.encode_to_iodata!/1`).
 
     * `:csv_encoder` - defaults to [`&NimbleCSV.RFC4180.dump_to_iodata/1`](`NimbleCSV.RFC4180.dump_to_iodata/1`).
+
+    * `:csv_stream_encoder` - defaults to [`&NimbleCSV.RFC4180.dump_to_stream/1`](`NimbleCSV.RFC4180.dump_to_stream/1`).
 
   ## Examples
 
@@ -245,7 +248,7 @@ defmodule Requests do
   def encode_request_body(request, opts) do
     case request.body do
       {:form, data} ->
-        encode(request, data, &URI.encode_query/1, "application/x-www-form-urlencoded")
+        encode(request, URI.encode_query(data), "application/x-www-form-urlencoded")
 
       {:json, data} ->
         encoder =
@@ -269,11 +272,11 @@ defmodule Requests do
             &Jason.encode_to_iodata!/1
           end)
 
-        encode(request, data, encoder, "application/json")
+        encode(request, encoder.(data), "application/json")
 
-      {:csv, data} ->
+      {:csv, {:stream, data}} ->
         encoder =
-          Keyword.get_lazy(opts, :json_encoder, fn ->
+          Keyword.get_lazy(opts, :csv_stream_encoder, fn ->
             unless Code.ensure_loaded?(NimbleCSV) do
               Logger.error("""
               Could not find nimble_csv dependency.
@@ -282,7 +285,31 @@ defmodule Requests do
 
                   {:nimble_csv, "~> 1.0"}
 
-              Or set your own JSON encoder:
+              Or set your own CSV encoder:
+
+                  Requests.post!(url, {:csv, data}, csv_stream_encoder: &MyEncoder.encode!/1)
+              """)
+
+              raise "missing nimble_csv dependency"
+            end
+
+            &NimbleCSV.RFC4180.dump_to_stream/1
+          end)
+
+        encode(request, {:stream, encoder.(data)}, "text/csv")
+
+      {:csv, data} ->
+        encoder =
+          Keyword.get_lazy(opts, :csv_encoder, fn ->
+            unless Code.ensure_loaded?(NimbleCSV) do
+              Logger.error("""
+              Could not find nimble_csv dependency.
+
+              Please add it to your dependencies:
+
+                  {:nimble_csv, "~> 1.0"}
+
+              Or set your own CSV encoder:
 
                   Requests.post!(url, {:csv, data}, csv_encoder: &MyEncoder.encode!/1)
               """)
@@ -293,17 +320,17 @@ defmodule Requests do
             &NimbleCSV.RFC4180.dump_to_iodata/1
           end)
 
-        encode(request, data, encoder, "text/csv")
+        encode(request, encoder.(data), "text/csv")
 
       _ ->
         request
     end
   end
 
-  defp encode(request, data, encoder, content_type) do
+  defp encode(request, body, content_type) do
     %{
       request
-      | body: encoder.(data),
+      | body: body,
         headers: put_new_header(request.headers, "content-type", content_type)
     }
   end
