@@ -29,7 +29,7 @@ defmodule Requests do
 
   ## Features
 
-    * Extensible via request and response middleware
+    * Extensible via request, response, and error middleware
 
     * Automatic body encoding/decoding (via `encode_request_body/2` and `decode_response_body/2`
       middleware)
@@ -95,6 +95,8 @@ defmodule Requests do
   @doc """
   Makes a HTTP request.
 
+  Returns `{:ok, response}` or `{:error, exception}`.
+
   Options:
 
     * `:headers` - list of request headers, defaults to `[]`.
@@ -115,17 +117,27 @@ defmodule Requests do
       * `decompress/1`
       * `decode_response_body/2` with `opts`
 
+    * `:error_middleware` - list of middleware to run the error through, defaults to using:
+
+      * `retry/1`
+
   ## Middleware
 
-  `Requests` has two types of middleware: for requests and for responses.
+  `Requests` supports request, response, and error middleware.
 
   A request middleware is any function that accepts and returns a possibly updated `Finch.Request`
   struct. An example is `default_headers/1`.
 
-  A response middleware is any function that accepts and returns a possibly updated response
-  (`Finch.Response` struct) or exception (e.g.: `Mint.TransportError`). Every response middleware
-  should pattern match on `{:ok, response}` and `{:error, exception}` and return similar shape.
-  An example is `decompress/1`.
+  A response middleware is any function that accepts and returns a possibly updated
+  `Finch.Response` struct. An example is `decompress/1`.
+
+  An error middleware is any function that accepts and returns a possibly updated exception struct.
+  An example is `retry/1`.
+
+  A response middleware may also return an `exception` in which case the final return value is
+  switched to `{:error, exception}` however no further middleware is run on the exception.
+  Similarly, an error middleware may return a `response` in which case the final return value is
+  switched to `{:ok, response}` however no further middleware is run on the response.
 
   Notice that some of the built-in middleware functions take more than one argument. In order to
   use them, you have a couple options:
@@ -176,37 +188,68 @@ defmodule Requests do
         ]
       end)
 
-    headers = Keyword.get(opts, :headers, [])
-    request = Finch.build(method, url, headers, body)
-
-    request =
-      Enum.reduce(request_middleware, request, fn
-        {mod, fun, args}, acc ->
-          apply(mod, fun, [acc | args])
-
-        fun, acc ->
-          fun.(acc)
+    error_middleware =
+      Keyword.get_lazy(opts, :error_middleware, fn ->
+        [
+          &Requests.retry/1
+        ]
       end)
 
-    do_request(request, finch, response_middleware)
+    headers = Keyword.get(opts, :headers, [])
+
+    Finch.build(method, url, headers, body)
+    |> run_middleware(request_middleware)
+    |> do_request(finch, response_middleware, error_middleware)
   end
 
-  defp do_request(request, finch, response_middleware, attempt \\ 1) do
-    Enum.reduce(response_middleware, Finch.request(request, finch), fn
-      {mod, fun, args}, acc ->
-        apply(mod, fun, [acc | args])
+  defp do_request(request, finch, response_middleware, error_middleware, attempt \\ 1) do
+    case Finch.request(request, finch) do
+      {:ok, response} ->
+        Enum.reduce_while(response_middleware, {:ok, response}, fn item, acc ->
+          {_, response_or_error} = acc
 
-      fun, acc ->
-        fun.(acc)
-    end)
+          case run(item, response_or_error) do
+            %Finch.Response{} = response ->
+              {:cont, {:ok, response}}
+
+            exception when is_exception(exception) ->
+              {:halt, {:error, exception}}
+          end
+        end)
+
+      {:error, exception} ->
+        Enum.reduce_while(error_middleware, {:error, exception}, fn item, acc ->
+          {_, response_or_error} = acc
+
+          case run(item, response_or_error) do
+            exception when is_exception(exception) ->
+              {:cont, {:error, exception}}
+
+            %Finch.Response{} = response ->
+              {:halt, {:ok, response}}
+          end
+        end)
+    end
   catch
     {:__requests_retry__, result} ->
       if attempt < 3 do
         Process.sleep(100)
-        do_request(request, finch, response_middleware, attempt + 1)
+        do_request(request, finch, response_middleware, error_middleware, attempt + 1)
       else
         {:error, %Requests.TooManyFailedAttempts{last_result: result}}
       end
+  end
+
+  defp run_middleware(struct, middleware) do
+    Enum.reduce(middleware, struct, &run/2)
+  end
+
+  defp run({mod, fun, args}, acc) do
+    apply(mod, fun, [acc | args])
+  end
+
+  defp run(fun, acc) do
+    fun.(acc)
   end
 
   ## Request middleware
@@ -408,12 +451,10 @@ defmodule Requests do
   Supported values: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
   """
   @doc middleware: :response
-  def decompress({:ok, response}) do
+  def decompress(response) do
     compression_algorithms = get_content_encoding_header(response.headers)
-    {:ok, update_in(response.body, &decompress_body(&1, compression_algorithms))}
+    update_in(response.body, &decompress_body(&1, compression_algorithms))
   end
-
-  def decompress(other), do: other
 
   defp decompress_body(body, algorithms) do
     Enum.reduce(algorithms, body, &decompress_with_algorithm/2)
@@ -452,9 +493,7 @@ defmodule Requests do
 
   """
   @doc middleware: :response
-  def decode_response_body(result, opts \\ [])
-
-  def decode_response_body({:ok, response}, opts) do
+  def decode_response_body(response, opts) do
     json_decoder =
       Keyword.get_lazy(opts, :json_decoder, fn ->
         if Code.ensure_loaded?(Jason) do
@@ -481,15 +520,14 @@ defmodule Requests do
           response.body
       end
 
-    {:ok, %{response | body: body}}
+    %{response | body: body}
   end
-
-  def decode_response_body(other, _opts), do: other
 
   @doc """
   Retries a request on errors.
 
-  Retries a request that resulted in either:
+  This function can be used as either or both response and error middleware. It retries a
+  request that resulted in:
 
     * response with status `5xx`
 
@@ -497,15 +535,21 @@ defmodule Requests do
 
   Retries up to 2 times (3 requests total) with 100ms delay in between.
 
-  Returns `{:ok, response}` or `{:error, %Requests.TooManyFailedAttempts{}}`.
+  If all attempts have been exhausted, returns `Requests.TooManyFailedAttempts`.
   """
-  @doc middleware: :response
-  def retry({:ok, response}) when response.status not in 500..599 do
-    {:ok, response}
+  @doc middleware: :error
+  def retry(response_or_exception)
+
+  def retry(%Finch.Response{} = response) when response.status not in 500..599 do
+    response
   end
 
-  def retry(result) do
-    throw({:__requests_retry__, result})
+  def retry(%Finch.Response{} = response) do
+    throw({:__requests_retry__, response})
+  end
+
+  def retry(exception) do
+    throw({:__requests_retry__, exception})
   end
 
   ## Utilities

@@ -132,25 +132,107 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/stream-request", {:csv, {:stream, body}}).body == body
   end
 
-  test "retry", c do
+  test "retry: response", c do
     pid = self()
 
     Bypass.expect(c.bypass, "GET", "/retry", fn conn ->
-      send(pid, :ping)
       Plug.Conn.send_resp(conn, 500, "oops")
     end)
 
-    assert {:error, %Requests.TooManyFailedAttempts{}} = Requests.get(c.url <> "/retry")
+    opts = [
+      response_middleware: [
+        fn error ->
+          send(pid, :ping)
+          error
+        end,
+        &Requests.retry/1
+      ],
+      error_middleware: []
+    ]
 
+    assert {:error, %Requests.TooManyFailedAttempts{}} = Requests.get(c.url <> "/retry", opts)
     assert_received :ping
     assert_received :ping
     assert_received :ping
     refute_received _
   end
 
+  test "retry: error", c do
+    pid = self()
+    Bypass.down(c.bypass)
+
+    opts = [
+      response_middleware: [],
+      error_middleware: [
+        fn error ->
+          send(pid, :ping)
+          error
+        end,
+        &Requests.retry/1
+      ]
+    ]
+
+    assert {:error, %Requests.TooManyFailedAttempts{}} = Requests.get(c.url <> "/retry", opts)
+    assert_received :ping
+    assert_received :ping
+    assert_received :ping
+    refute_received _
+  end
+
+  test "retry: when eventually successful", c do
+    {:ok, _} = Agent.start_link(fn -> 0 end, name: :counter)
+
+    Bypass.expect(c.bypass, "GET", "/retry", fn conn ->
+      if Agent.get_and_update(:counter, &{&1, &1 + 1}) < 2 do
+        Plug.Conn.send_resp(conn, 500, "oops")
+      else
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end
+    end)
+
+    assert {:ok, %{body: "ok"}} = Requests.get(c.url <> "/retry")
+    assert Agent.get(:counter, & &1) == 3
+  end
+
+  test "response middleware returning error", c do
+    Bypass.expect(c.bypass, "GET", "/error", fn conn ->
+      Plug.Conn.send_resp(conn, 500, "oops")
+    end)
+
+    opts = [
+      response_middleware: [
+        fn response ->
+          RuntimeError.exception(response.body)
+        end
+      ],
+      error_middleware: []
+    ]
+
+    assert {:error, exception} = Requests.get(c.url <> "/error", opts)
+    assert exception == %RuntimeError{message: "oops"}
+  end
+
+  test "error middleware returning response", c do
+    :ok = Bypass.down(c.bypass)
+
+    opts = [
+      response_middleware: [],
+      error_middleware: [
+        fn exception ->
+          body = Exception.message(exception)
+          %Finch.Response{status: 200, body: body}
+        end
+      ]
+    ]
+
+    assert {:ok, %Finch.Response{status: 200}} = Requests.get(c.url <> "/error", opts)
+  end
+
   test "errors", c do
     :ok = Bypass.down(c.bypass)
-    assert {:error, %Mint.TransportError{reason: :econnrefused}} = Requests.get(c.url <> "/200")
+    opts = [response_middleware: [], error_middleware: []]
+    assert {:error, exception} = Requests.get(c.url <> "/200", opts)
+    assert exception == %Mint.TransportError{reason: :econnrefused}
   end
 
   @tag :skip

@@ -25,7 +25,8 @@ defmodule Requests.MixProject do
       groups_for_functions: [
         API: &(!&1[:middleware]),
         "Request middleware": &(&1[:middleware] == :request),
-        "Response middleware": &(&1[:middleware] == :response)
+        "Response middleware": &(&1[:middleware] == :response),
+        "Error middleware": &(&1[:middleware] == :error)
       ],
       source_url: "https://github.com/wojtekmach/requests",
       source_ref: "master"
