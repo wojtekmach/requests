@@ -20,12 +20,12 @@ defmodule Requests do
 
   ## Features
 
-    * Extensible via request and response middlewares
+    * Extensible via request and response middleware
 
     * Automatic body encoding/decoding (via `encode_request_body/2` and `decode_response_body/2`
       middleware)
 
-    * Automatic compression/decompression (via the `compress/2` and `decompress/2` middleware)
+    * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
 
   ## Examples
 
@@ -91,77 +91,97 @@ defmodule Requests do
     * `:finch` - name of the `Finch` pool to use, defaults to `Requests.Finch` that is started
       with the default options.
 
-    * `:request_middleware` - list of middleware to run the request through, defaults to `[]`.
+    * `:request_middleware` - list of middleware to run the request through, defaults to using:
 
-    * `:default_request_middleware` - if `true` (default), prepends the following functions
-       to the request middleware list:
+      * `normalize_request_headers/1`
+      * `default_headers/1`
+      * `encode_request_body/2` with `opts[:encode_request_body] || []`
+      * `compress/2` with `opts[:compress]` (if set)
 
-      * `normalize_request_headers/2`
-      * `default_headers/2`
-      * `encode_request_body/2`
-      * `compress/2`
+    * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
-    * `:response_middleware` - list of middleware to run the response through, defaults to `[]`.
+      * `decompress/1`
+      * `decode_response_body/2` with `opts[:decode_response_body] || []`
 
-    * `:default_response_middleware` - if `true` (default), prepends the following functions to
-      the response middleware list:
+  ## Middleware
 
-      * `decompress/2`
-      * `decode_response_body/2`
+  `Requests` has two types of middleware: for requests and for responses.
 
-  The `opts` keywords list is passed to each middleware.
+  A request middleware is any function that accepts and returns a possibly updated `Finch.Request`
+  struct. An example is `default_headers/1`.
 
-  ## Request middleware
+  A response middleware is any function that accepts and returns a possibly updated `Finch.Response`
+  struct. An example is `decompress/1`.
 
-  A request middleware is a function that takes two arguments:
-  request:
+  Notice that some of the built-in middleware functions take more than one argument. In order to
+  use them, you have a couple options:
 
-  - a `Finch.Request` struct
-  - an `opts` keywords list
+    - use [capture operator](`Kernel.SpecialForms.&`), for example: `&compress(&1, ["gzip"])`
 
-  and returns a possibly updated.
+    - use a `{module, function, args}` tuple, where the first argument (request or response)
+      will be automatically prepended, for example: `{Requests, :compress, ["gzip"]}`
 
-  An example is `compress/2`.
+  ### Example
 
-  ## Response middleware
+      opts = [
+        request_middleware: [
+          &Requests.default_headers/1,
+          &IO.inspect(&1, label: :final_request),
+        ],
+        response_middleware: [
+          {IO, :inspect, [[label: :initial_response]]},
+          {Requests, :decode_response_body, []}
+        ]
+      ]
 
-  A response middleware is a function that takes two arguments:
+      Requests.get!("https://httpbin.org/json", opts)
+      |> IO.inspect(label: :final_response)
 
-  - a `Finch.Response` struct
-  - an `opts` keywords list
-
-  and returns a possibly updated response.
-
-  An example is `decompress/2`.
   """
   def request(method, url, body, opts \\ []) when is_binary(url) and is_list(opts) do
-    middleware =
-      if Keyword.get(opts, :default_request_middleware, true) do
-        [
-          &normalize_request_headers/2,
-          &default_headers/2,
-          &encode_request_body/2,
-          &compress/2
-        ]
-      else
-        []
-      end ++ Keyword.get(opts, :request_middleware, [])
+    request_middleware =
+      Keyword.get_lazy(opts, :request_middleware, fn ->
+        compress = Keyword.get(opts, :compress, false)
 
-    request = Finch.build(method, url, Keyword.get(opts, :headers, []), body)
-    request = Enum.reduce(middleware, request, &apply(&1, [&2, opts]))
+        [
+          &Requests.normalize_request_headers/1,
+          &Requests.default_headers/1,
+          &Requests.encode_request_body(&1, opts[:encode_request_body] || [])
+        ]
+        |> append_if(compress, &Requests.compress(&1, compress))
+      end)
+
+    response_middleware =
+      Keyword.get_lazy(opts, :response_middleware, fn ->
+        [
+          &Requests.decompress/1,
+          &Requests.decode_response_body(&1, opts[:decode_request_body] || [])
+        ]
+      end)
+
+    headers = Keyword.get(opts, :headers, [])
+    request = Finch.build(method, url, headers, body)
+
+    request =
+      Enum.reduce(request_middleware, request, fn
+        {mod, fun, args}, acc ->
+          apply(mod, fun, [acc | args])
+
+        fun, acc ->
+          fun.(acc)
+      end)
 
     with {:ok, response} <- Finch.request(request, Requests.Finch) do
-      middleware =
-        if Keyword.get(opts, :default_response_middleware, true) do
-          [
-            &decompress/2,
-            &decode_response_body/2
-          ]
-        else
-          []
-        end ++ Keyword.get(opts, :response_middleware, [])
+      response =
+        Enum.reduce(response_middleware, response, fn
+          {mod, fun, args}, acc ->
+            apply(mod, fun, [acc | args])
 
-      {:ok, Enum.reduce(middleware, response, &apply(&1, [&2, opts]))}
+          fun, acc ->
+            fun.(acc)
+        end)
+
+      {:ok, response}
     end
   end
 
@@ -174,7 +194,7 @@ defmodule Requests do
   Non-atom names are returned as is.
   """
   @doc middleware: :request
-  def normalize_request_headers(request, _opts) do
+  def normalize_request_headers(request) do
     headers =
       for {name, value} <- request.headers do
         if is_atom(name) do
@@ -198,7 +218,7 @@ defmodule Requests do
 
   """
   @doc middleware: :request
-  def default_headers(request, _opts) do
+  def default_headers(request) do
     update_in(request.headers, fn headers ->
       headers
       |> put_new_header("user-agent", "requests/#{@vsn}")
@@ -236,7 +256,7 @@ defmodule Requests do
 
   """
   @doc middleware: :request
-  def encode_request_body(request, opts) do
+  def encode_request_body(request, opts \\ []) do
     case request.body do
       {:form, data} ->
         encode(request, URI.encode_query(data), "application/x-www-form-urlencoded")
@@ -327,14 +347,17 @@ defmodule Requests do
   end
 
   @doc """
-  Compresses the request body based on the `content-encoding` header.
+  Compresses the request body with the given `algorithms`.
 
-  Supported values: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
+  Supported algorithms: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
+
+  This function also sets the appropriate `content-encoding` header (unless already set.)
   """
   @doc middleware: :request
-  def compress(request, _opts) do
-    compression_algorithms = get_content_encoding_header(request.headers)
-    update_in(request.body, &compress_body(&1, compression_algorithms))
+  def compress(request, algorithms) when is_list(algorithms) do
+    request
+    |> Map.update!(:body, &compress_body(&1, algorithms))
+    |> Map.update!(:headers, &put_new_header(&1, "content-encoding", Enum.join(algorithms, ",")))
   end
 
   defp compress_body(body, algorithms) do
@@ -361,7 +384,7 @@ defmodule Requests do
   Supported values: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
   """
   @doc middleware: :response
-  def decompress(response, _opts) do
+  def decompress(response) do
     compression_algorithms = get_content_encoding_header(response.headers)
     update_in(response.body, &decompress_body(&1, compression_algorithms))
   end
@@ -388,15 +411,14 @@ defmodule Requests do
   ## Options
 
     * `:json_decoder` - if set, used on the `"application/json*"` content type. Defaults to
-      [`&Jason.decode/1`](`Jason.decode/1`) if `jason` dependency is installed.
+      [`&Jason.decode/1`](`Jason.decode/1`)
 
     * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
       [`&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)`](`NimbleCSV.RFC4180.parse_string/2`)
-      if `nimble_csv` dependency is installed.
 
   """
   @doc middleware: :response
-  def decode_response_body(response, opts) do
+  def decode_response_body(response, opts \\ []) do
     json_decoder =
       Keyword.get_lazy(opts, :json_decoder, fn ->
         if Code.ensure_loaded?(Jason) do
@@ -456,5 +478,9 @@ defmodule Requests do
     else
       []
     end
+  end
+
+  defp append_if(middleware, append?, item) do
+    if append?, do: middleware ++ [item], else: middleware
   end
 end

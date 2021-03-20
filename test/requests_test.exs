@@ -31,8 +31,7 @@ defmodule RequestsTest do
 
     assert "custom" = Requests.get!(c.url <> "/user-agent", headers: [user_agent: "custom"]).body
 
-    assert "mint/" <> _ =
-             Requests.get!(c.url <> "/user-agent", default_request_middleware: false).body
+    assert "mint/" <> _ = Requests.get!(c.url <> "/user-agent", request_middleware: []).body
   end
 
   test "form-encoding", c do
@@ -92,8 +91,8 @@ defmodule RequestsTest do
 
       body =
         body
-        |> :zlib.unzip()
         |> :zlib.gunzip()
+        |> :zlib.unzip()
         |> :zlib.gzip()
         |> :zlib.zip()
 
@@ -103,7 +102,7 @@ defmodule RequestsTest do
     end)
 
     body = "foo"
-    opts = [headers: [content_encoding: "deflate,gzip"]]
+    opts = [compress: ["deflate", "gzip"]]
     assert Requests.post!(c.url <> "/deflate+gzip", body, opts).body == body
   end
 
@@ -136,5 +135,22 @@ defmodule RequestsTest do
     assert_raise Mint.TransportError, ~r/connection refused/, fn ->
       Requests.get!(c.url <> "/200")
     end
+  end
+
+  @tag :skip
+  test "httpbin" do
+    opts = [
+      request_middleware: [
+        &Requests.default_headers/1,
+        &IO.inspect(&1, label: :final_request)
+      ],
+      response_middleware: [
+        {IO, :inspect, [[label: :initial_response]]},
+        {Requests, :decode_response_body, []}
+      ]
+    ]
+
+    Requests.get!("https://httpbin.org/json", opts)
+    |> IO.inspect(label: :final_response)
   end
 end
