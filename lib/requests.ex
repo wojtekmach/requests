@@ -95,13 +95,13 @@ defmodule Requests do
 
       * `normalize_request_headers/1`
       * `default_headers/1`
-      * `encode_request_body/2` with `opts[:encode_request_body] || []`
+      * `encode_request_body/2` with `opts`
       * `compress/2` with `opts[:compress]` (if set)
 
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
       * `decompress/1`
-      * `decode_response_body/2` with `opts[:decode_response_body] || []`
+      * `decode_response_body/2` with `opts`
 
   ## Middleware
 
@@ -146,7 +146,7 @@ defmodule Requests do
         [
           &Requests.normalize_request_headers/1,
           &Requests.default_headers/1,
-          &Requests.encode_request_body(&1, opts[:encode_request_body] || [])
+          &Requests.encode_request_body(&1, opts)
         ]
         |> append_if(compress, &Requests.compress(&1, compress))
       end)
@@ -155,7 +155,7 @@ defmodule Requests do
       Keyword.get_lazy(opts, :response_middleware, fn ->
         [
           &Requests.decompress/1,
-          &Requests.decode_response_body(&1, opts[:decode_request_body] || [])
+          &Requests.decode_response_body(&1, opts)
         ]
       end)
 
@@ -415,6 +415,14 @@ defmodule Requests do
 
     * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
       [`&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)`](`NimbleCSV.RFC4180.parse_string/2`)
+
+  ## Examples
+
+      iex> Requests.get!("https://httpbin.org/json").body
+      %{...}
+
+      iex> Requests.get!("https://httpbin.org/json", json_decoder: fn _ -> "fake" end).body
+      "fake"
 
   """
   @doc middleware: :response

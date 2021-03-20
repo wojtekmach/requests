@@ -60,6 +60,9 @@ defmodule RequestsTest do
 
     body = %{"x" => 1}
     assert Requests.post!(c.url <> "/json", {:json, body}).body == body
+
+    opts = [json_decoder: fn _ -> "fake" end]
+    assert Requests.post!(c.url <> "/json", {:json, body}, opts).body == "fake"
   end
 
   test "encoding/decoding csv", c do
