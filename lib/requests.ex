@@ -495,7 +495,7 @@ defmodule Requests do
 
   """
   @doc middleware: :response
-  def decode_response_body(response, opts) do
+  def decode_response_body(response, opts \\ []) do
     json_decoder =
       Keyword.get_lazy(opts, :json_decoder, fn ->
         if Code.ensure_loaded?(Jason) do
