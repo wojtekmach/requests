@@ -31,12 +31,14 @@ defmodule Requests do
 
     * Extensible via request, response, and error middleware
 
-    * Automatic body encoding/decoding (via `encode_request_body/2` and `decode_response_body/2`
+    * Automatic body encoding/decoding (via the `encode_request_body/2` and `decode_response_body/2`
       middleware)
 
     * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
 
-    * Automatic retries on errors (via `retry/1`)
+    * Automatic retries on errors (via the `retry/1` middleware)
+
+    * Request streaming (by setting body as `{:stream, enumerable}`)
 
   ## Examples
 
