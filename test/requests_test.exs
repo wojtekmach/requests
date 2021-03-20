@@ -132,12 +132,25 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/stream-request", {:csv, {:stream, body}}).body == body
   end
 
+  test "retry", c do
+    pid = self()
+
+    Bypass.expect(c.bypass, "GET", "/retry", fn conn ->
+      send(pid, :ping)
+      Plug.Conn.send_resp(conn, 500, "oops")
+    end)
+
+    assert {:error, %Requests.TooManyFailedAttempts{}} = Requests.get(c.url <> "/retry")
+
+    assert_received :ping
+    assert_received :ping
+    assert_received :ping
+    refute_received _
+  end
+
   test "errors", c do
     :ok = Bypass.down(c.bypass)
-
-    assert_raise Mint.TransportError, ~r/connection refused/, fn ->
-      Requests.get!(c.url <> "/200")
-    end
+    assert {:error, %Mint.TransportError{reason: :econnrefused}} = Requests.get(c.url <> "/200")
   end
 
   @tag :skip
