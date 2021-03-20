@@ -36,7 +36,7 @@ defmodule Requests do
 
     * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
 
-    * Automatic retries on errors (via the `retry/1` middleware)
+    * Automatic retries on errors (via the `retry/2` middleware)
 
     * Request streaming (by setting body as `{:stream, enumerable}`)
 
@@ -115,13 +115,13 @@ defmodule Requests do
 
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
-      * `retry/1`
+      * `retry/2` with `opts`
       * `decompress/1`
       * `decode_response_body/2` with `opts`
 
     * `:error_middleware` - list of middleware to run the error through, defaults to using:
 
-      * `retry/1`
+      * `retry/2` with `opts`
 
   ## Middleware
 
@@ -176,7 +176,7 @@ defmodule Requests do
         [
           &Requests.normalize_request_headers/1,
           &Requests.default_headers/1,
-          &Requests.encode_request_body(&1, opts)
+          {Requests, :encode_request_body, [opts]}
         ]
         |> append_if(compress, &Requests.compress(&1, compress))
       end)
@@ -184,16 +184,16 @@ defmodule Requests do
     response_middleware =
       Keyword.get_lazy(opts, :response_middleware, fn ->
         [
-          &Requests.retry/1,
+          {Requests, :retry, [opts]},
           &Requests.decompress/1,
-          &Requests.decode_response_body(&1, opts)
+          {Requests, :decode_response_body, [opts]}
         ]
       end)
 
     error_middleware =
       Keyword.get_lazy(opts, :error_middleware, fn ->
         [
-          &Requests.retry/1
+          {Requests, :retry, [opts]}
         ]
       end)
 
@@ -233,9 +233,9 @@ defmodule Requests do
         end)
     end
   catch
-    {:__requests_retry__, result} ->
-      if attempt < 3 do
-        Process.sleep(100)
+    {:__requests_retry__, result, max_count, delay} ->
+      if attempt < max_count do
+        Process.sleep(delay)
         do_request(request, finch, response_middleware, error_middleware, attempt + 1)
       else
         {:error, %Requests.TooManyFailedAttempts{last_result: result}}
@@ -535,23 +535,26 @@ defmodule Requests do
 
     * exception
 
-  Retries up to 2 times (3 requests total) with 100ms delay in between.
+  ## Options
 
-  If all attempts have been exhausted, returns `Requests.TooManyFailedAttempts`.
+    * `:retry_max_count` - maximum number of retries, defaults to: `2`
+
+    * `:retry_delay` - sleep this number of milliseconds before making another attempt, defaults
+      to `2000`
+
+  If all attempts have failed, returns `Requests.TooManyFailedAttempts`.
   """
   @doc middleware: :error
-  def retry(response_or_exception)
+  def retry(response_or_exception, opts \\ [])
 
-  def retry(%Finch.Response{} = response) when response.status not in 500..599 do
+  def retry(%Finch.Response{} = response, _opts) when response.status not in 500..599 do
     response
   end
 
-  def retry(%Finch.Response{} = response) do
-    throw({:__requests_retry__, response})
-  end
-
-  def retry(exception) do
-    throw({:__requests_retry__, exception})
+  def retry(response_or_exception, opts) do
+    max_count = Keyword.get(opts, :retry_max_count, 2)
+    delay = Keyword.get(opts, :retry_delay, 2000)
+    throw({:__requests_retry__, response_or_exception, max_count, delay})
   end
 
   ## Utilities

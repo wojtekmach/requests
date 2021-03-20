@@ -145,7 +145,7 @@ defmodule RequestsTest do
           send(pid, :ping)
           error
         end,
-        &Requests.retry/1
+        {Requests, :retry, [[retry_max_count: 3, retry_delay: 10]]}
       ],
       error_middleware: []
     ]
@@ -168,7 +168,7 @@ defmodule RequestsTest do
           send(pid, :ping)
           error
         end,
-        &Requests.retry/1
+        {Requests, :retry, [[retry_max_count: 3, retry_delay: 10]]}
       ]
     ]
 
@@ -190,7 +190,12 @@ defmodule RequestsTest do
       end
     end)
 
-    assert {:ok, %{body: "ok"}} = Requests.get(c.url <> "/retry")
+    opts = [
+      retry_max_count: 3,
+      retry_delay: 10
+    ]
+
+    assert {:ok, %{body: "ok"}} = Requests.get(c.url <> "/retry", opts)
     assert Agent.get(:counter, & &1) == 3
   end
 
