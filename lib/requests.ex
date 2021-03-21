@@ -134,7 +134,7 @@ defmodule Requests do
   `Finch.Response` struct. An example is `decompress/1`.
 
   An error middleware is any function that accepts and returns a possibly updated exception struct.
-  An example is `retry/1`.
+  An example is `retry/2`.
 
   A response middleware may also return an `exception` in which case the final return value is
   switched to `{:error, exception}` however no further middleware is run on the exception.
