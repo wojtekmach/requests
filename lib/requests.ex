@@ -103,9 +103,6 @@ defmodule Requests do
 
     * `:headers` - list of request headers, defaults to `[]`.
 
-    * `:finch` - name of the `Finch` pool to use, defaults to `Requests.Finch` that is started
-      with the default options.
-
     * `:request_middleware` - list of middleware to run the request through, defaults to using:
 
       * `normalize_request_headers/1`
@@ -122,6 +119,15 @@ defmodule Requests do
     * `:error_middleware` - list of middleware to run the error through, defaults to using:
 
       * `retry/2` with `opts` (if `retry: true` or any of the `retry_*` options are set)
+
+    * `:finch` - name of the `Finch` pool to use, defaults to `Requests.Finch` that is started
+      with the default options. See `Finch.start_link/1` for more information.
+
+    * `:pool_timeout` - the maximum time to wait for a connection, defaults to `5000`. See
+      `Finch.request/3` for more information.
+
+    * `:receive_timeout` - the maximum time to wait for a response, defaults to `15000`. See
+      `Finch.request/3` for more information.
 
   ## Middleware
 
@@ -168,6 +174,7 @@ defmodule Requests do
   """
   def request(method, url, body, opts \\ []) when is_binary(url) and is_list(opts) do
     finch = Keyword.get(opts, :finch, Requests.Finch)
+    finch_opts = Keyword.take(opts, [:pool_timeout, :receive_timeout])
 
     request_middleware =
       Keyword.get_lazy(opts, :request_middleware, fn ->
@@ -206,11 +213,11 @@ defmodule Requests do
 
     Finch.build(method, url, headers, body)
     |> run_middleware(request_middleware)
-    |> do_request(finch, response_middleware, error_middleware)
+    |> do_request(finch, response_middleware, error_middleware, finch_opts)
   end
 
-  defp do_request(request, finch, response_middleware, error_middleware, attempt \\ 1) do
-    case Finch.request(request, finch) do
+  defp do_request(request, finch, response_middleware, error_middleware, opts, attempt \\ 1) do
+    case Finch.request(request, finch, opts) do
       {:ok, response} ->
         Enum.reduce_while(response_middleware, {:ok, response}, fn item, acc ->
           {_, response_or_error} = acc
@@ -241,7 +248,7 @@ defmodule Requests do
     {:__requests_retry__, result, max_count, delay} ->
       if attempt < max_count do
         Process.sleep(delay)
-        do_request(request, finch, response_middleware, error_middleware, attempt + 1)
+        do_request(request, finch, response_middleware, error_middleware, opts, attempt + 1)
       else
         {:error, %Requests.TooManyFailedAttempts{last_result: result}}
       end
