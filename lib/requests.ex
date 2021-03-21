@@ -423,7 +423,7 @@ defmodule Requests do
   @doc """
   Compresses the request body with the given `algorithms`.
 
-  Supported algorithms: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
+  Supported algorithms: `:gzip`, `:deflate`, and `:identity`.
 
   This function also sets the appropriate `content-encoding` header (unless already set.)
   """
@@ -431,21 +431,29 @@ defmodule Requests do
   def compress(request, algorithms) when is_list(algorithms) do
     request
     |> Map.update!(:body, &compress_body(&1, algorithms))
-    |> Map.update!(:headers, &put_new_header(&1, "content-encoding", Enum.join(algorithms, ",")))
+    |> Map.update!(
+      :headers,
+      fn headers ->
+        put_new_header(
+          headers,
+          "content-encoding",
+          Enum.map_join(algorithms, ",", &Atom.to_string/1)
+        )
+      end
+    )
   end
 
   defp compress_body(body, algorithms) do
     Enum.reduce(algorithms, body, &compress_with_algorithm/2)
   end
 
-  defp compress_with_algorithm(gzip, body) when gzip in ["gzip", "x-gzip"],
-    do: :zlib.gzip(body)
+  defp compress_with_algorithm(:gzip, {:stream, body}), do: {:stream, gzip_stream(body)}
 
-  defp compress_with_algorithm("deflate", body),
-    do: :zlib.zip(body)
+  defp compress_with_algorithm(:gzip, body), do: :zlib.gzip(body)
 
-  defp compress_with_algorithm("identity", body),
-    do: body
+  defp compress_with_algorithm(:deflate, body), do: :zlib.zip(body)
+
+  defp compress_with_algorithm(:identity, body), do: body
 
   defp compress_with_algorithm(algorithm, _body),
     do: raise("unsupported compression algorithm: #{inspect(algorithm)}")
@@ -600,5 +608,30 @@ defmodule Requests do
 
   defp append_if(middleware, append?, item) do
     if append?, do: middleware ++ [item], else: middleware
+  end
+
+  defp gzip_stream(stream) do
+    stream
+    |> Stream.concat([:eof])
+    |> Stream.transform(
+      fn ->
+        z = :zlib.open()
+        :ok = :zlib.deflateInit(z, :default, :deflated, 16 + 15, 8, :default)
+        z
+      end,
+      fn
+        :eof, z ->
+          buf = :zlib.deflate(z, [], :finish)
+          {buf, z}
+
+        data, z ->
+          buf = :zlib.deflate(z, data)
+          {buf, z}
+      end,
+      fn z ->
+        :ok = :zlib.deflateEnd(z)
+        :ok = :zlib.close(z)
+      end
+    )
   end
 end

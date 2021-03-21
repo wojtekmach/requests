@@ -105,8 +105,20 @@ defmodule RequestsTest do
     end)
 
     body = "foo"
-    opts = [compress: ["deflate", "gzip"]]
+    opts = [compress: [:deflate, :gzip]]
     assert Requests.post!(c.url <> "/deflate+gzip", body, opts).body == body
+  end
+
+  test "compress stream", c do
+    Bypass.expect(c.bypass, "POST", "/gzip", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      body = :zlib.gunzip(body)
+      Plug.Conn.send_resp(conn, 200, body)
+    end)
+
+    body = ["foo", "bar", "baz"]
+    opts = [compress: [:gzip]]
+    assert Requests.post!(c.url <> "/gzip", {:stream, body}, opts).body == "foobarbaz"
   end
 
   test "stream request", c do
