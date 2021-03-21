@@ -36,7 +36,7 @@ defmodule Requests do
 
     * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
 
-    * Automatic retries on errors (via the `retry/2` middleware)
+    * Retries on errors (via the `retry/2` middleware)
 
     * Request streaming (by setting body as `{:stream, enumerable}`)
 
@@ -115,13 +115,13 @@ defmodule Requests do
 
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
-      * `retry/2` with `opts`
+      * `retry/2` with `opts` (if `retry: true` or any of the `retry_*` options are set)
       * `decompress/1`
       * `decode_response_body/2` with `opts`
 
     * `:error_middleware` - list of middleware to run the error through, defaults to using:
 
-      * `retry/2` with `opts`
+      * `retry/2` with `opts` (if `retry: true` or any of the `retry_*` options are set)
 
   ## Middleware
 
@@ -181,20 +181,25 @@ defmodule Requests do
         |> append_if(compress, &Requests.compress(&1, compress))
       end)
 
+    retry_opts = Keyword.take(opts, [:retry_max_count, :retry_delay])
+    retry? = Keyword.get(opts, :retry, false) or retry_opts != []
+
     response_middleware =
       Keyword.get_lazy(opts, :response_middleware, fn ->
         [
-          {Requests, :retry, [opts]},
           &Requests.decompress/1,
           {Requests, :decode_response_body, [opts]}
         ]
+        |> prepend_if(retry?, &Requests.retry(&1, retry_opts))
       end)
 
     error_middleware =
       Keyword.get_lazy(opts, :error_middleware, fn ->
-        [
-          {Requests, :retry, [opts]}
-        ]
+        if retry? do
+          [&Requests.retry(&1, retry_opts)]
+        else
+          []
+        end
       end)
 
     headers = Keyword.get(opts, :headers, [])
@@ -587,6 +592,10 @@ defmodule Requests do
     else
       []
     end
+  end
+
+  defp prepend_if(middleware, prepend?, item) do
+    if prepend?, do: [item | middleware], else: middleware
   end
 
   defp append_if(middleware, append?, item) do
