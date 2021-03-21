@@ -567,7 +567,7 @@ defmodule Requests do
   @doc middleware: :error
   def retry(response_or_exception, opts \\ [])
 
-  def retry(%Finch.Response{} = response, _opts) when response.status not in 500..599 do
+  def retry(%Finch.Response{} = response, _opts) when response.status < 500 do
     response
   end
 
