@@ -1,6 +1,12 @@
 # Requests
 
-A toy http client.
+A work-in-progress toy http client.
+
+[Docs](http://wojtekmach.pl/docs/requests/Requests.html)
+
+Demo:
+
+<a href="https://asciinema.org/a/tG4xlXUTIpmkf8IttoPtR2MN4" target="_blank"><img src="https://asciinema.org/a/tG4xlXUTIpmkf8IttoPtR2MN4.svg" /></a>
 
 ## License
 
