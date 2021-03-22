@@ -10,15 +10,6 @@ defmodule Requests.Application do
   end
 end
 
-defmodule Requests.TooManyFailedAttempts do
-  defexception [:last_result]
-
-  @impl true
-  def message(%{last_result: last_result}) do
-    "Last result: #{inspect(last_result)}"
-  end
-end
-
 defmodule Requests do
   require Logger
 
@@ -216,7 +207,7 @@ defmodule Requests do
     |> do_request(finch, response_middleware, error_middleware, finch_opts)
   end
 
-  defp do_request(request, finch, response_middleware, error_middleware, opts, attempt \\ 1) do
+  defp do_request(request, finch, response_middleware, error_middleware, opts, attempt \\ 0) do
     case Finch.request(request, finch, opts) do
       {:ok, response} ->
         Enum.reduce_while(response_middleware, {:ok, response}, fn item, acc ->
@@ -246,12 +237,44 @@ defmodule Requests do
     end
   catch
     {:__requests_retry__, result, max_count, delay} ->
+      exception? = match?(%{__exception__: true}, result)
+
       if attempt < max_count do
+        log_retry(result, exception?, attempt, max_count, delay)
         Process.sleep(delay)
         do_request(request, finch, response_middleware, error_middleware, opts, attempt + 1)
       else
-        {:error, %Requests.TooManyFailedAttempts{last_result: result}}
+        if exception? do
+          {:error, result}
+        else
+          {:ok, result}
+        end
       end
+  end
+
+  defp log_retry(result, exception?, attempt, max_count, delay) do
+    attempts_left =
+      case max_count - attempt do
+        1 -> "1 attempt"
+        n -> "#{n} attempts"
+      end
+
+    message = ["\nWill retry in #{delay}ms, ", attempts_left, " left"]
+
+    if exception? do
+      Logger.error([
+        "Got exception\n",
+        "** (#{inspect(result.__struct__)}) ",
+        Exception.message(result),
+        message
+      ])
+    else
+      Logger.error([
+        "Got response with status #{result.status}\n",
+        result.headers |> inspect(pretty: true, label: "Headers") |> String.trim_trailing(),
+        message
+      ])
+    end
   end
 
   defp run_middleware(struct, middleware) do
@@ -562,7 +585,7 @@ defmodule Requests do
     * `:retry_delay` - sleep this number of milliseconds before making another attempt, defaults
       to `2000`
 
-  If all attempts have failed, returns `Requests.TooManyFailedAttempts`.
+  If all attempts have failed, returns the last result: `{:ok, response}` or `{:error, exception}`.
   """
   @doc middleware: :error
   def retry(response_or_exception, opts \\ [])

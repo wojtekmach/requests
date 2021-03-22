@@ -144,6 +144,7 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/stream-request", {:csv, {:stream, body}}).body == body
   end
 
+  @tag :capture_log
   test "retry: response", c do
     pid = self()
 
@@ -162,13 +163,15 @@ defmodule RequestsTest do
       error_middleware: []
     ]
 
-    assert {:error, %Requests.TooManyFailedAttempts{}} = Requests.get(c.url <> "/retry", opts)
+    assert {:ok, %{status: 500, body: "oops"}} = Requests.get(c.url <> "/retry", opts)
+    assert_received :ping
     assert_received :ping
     assert_received :ping
     assert_received :ping
     refute_received _
   end
 
+  @tag :capture_log
   test "retry: error", c do
     pid = self()
     Bypass.down(c.bypass)
@@ -184,13 +187,15 @@ defmodule RequestsTest do
       ]
     ]
 
-    assert {:error, %Requests.TooManyFailedAttempts{}} = Requests.get(c.url <> "/retry", opts)
+    assert {:error, %{reason: :econnrefused}} = Requests.get(c.url <> "/retry", opts)
+    assert_received :ping
     assert_received :ping
     assert_received :ping
     assert_received :ping
     refute_received _
   end
 
+  @tag :capture_log
   test "retry: when eventually successful", c do
     {:ok, _} = Agent.start_link(fn -> 0 end, name: :counter)
 
@@ -207,10 +212,11 @@ defmodule RequestsTest do
       retry_delay: 10
     ]
 
-    assert {:ok, %{body: "ok"}} = Requests.get(c.url <> "/retry", opts)
+    assert {:ok, %{status: 200, body: "ok"}} = Requests.get(c.url <> "/retry", opts)
     assert Agent.get(:counter, & &1) == 3
   end
 
+  @tag :capture_log
   test "response middleware returning error", c do
     Bypass.expect(c.bypass, "GET", "/error", fn conn ->
       Plug.Conn.send_resp(conn, 500, "oops")
@@ -225,8 +231,7 @@ defmodule RequestsTest do
       error_middleware: []
     ]
 
-    assert {:error, exception} = Requests.get(c.url <> "/error", opts)
-    assert exception == %RuntimeError{message: "oops"}
+    assert {:error, %{message: "oops"}} = Requests.get(c.url <> "/error", opts)
   end
 
   test "error middleware returning response", c do
