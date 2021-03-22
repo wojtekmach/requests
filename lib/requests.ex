@@ -103,13 +103,13 @@ defmodule Requests do
 
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
-      * `retry/2` with `opts` (if `retry: true` or any of the `retry_*` options are set)
+      * `retry/2` with `opts` (if `retry: true` or any of the `:retry_*` options are set)
       * `decompress/1`
       * `decode_response_body/2` with `opts`
 
     * `:error_middleware` - list of middleware to run the error through, defaults to using:
 
-      * `retry/2` with `opts` (if `retry: true` or any of the `retry_*` options are set)
+      * `retry/2` with `opts` (if `retry: true` or any of the `:retry_*` options are set)
 
     * `:finch` - name of the `Finch` pool to use, defaults to `Requests.Finch` that is started
       with the default options. See `Finch.start_link/1` for more information.
