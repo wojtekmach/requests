@@ -271,7 +271,8 @@ defmodule Requests do
     else
       Logger.error([
         "Got response with status #{result.status}\n",
-        result.headers |> inspect(pretty: true, label: "Headers") |> String.trim_trailing(),
+        "Headers: ",
+        result.headers |> inspect(pretty: true) |> String.trim_trailing(),
         message
       ])
     end
@@ -585,7 +586,49 @@ defmodule Requests do
     * `:retry_delay` - sleep this number of milliseconds before making another attempt, defaults
       to `2000`
 
-  If all attempts have failed, returns the last result: `{:ok, response}` or `{:error, exception}`.
+  If all attempts have failed, returns immediately without running any other middleware.
+
+  ## Examples
+
+  Server eventually became available:
+
+      iex> Requests.get("http://localhost:4000", retry: true)
+      # Logs:
+      # 12:37:15.554 [error] Got exception
+      # ** (Mint.TransportError) connection refused
+      # Will retry in 2000ms, 2 attempts left
+      # 12:37:17.557 [error] Got exception
+      # ** (Mint.TransportError) connection refused
+      # Will retry in 2000ms, 1 attempt left
+      {:ok,
+       %Finch.Response{
+         body: "hello",
+         headers: [
+           {"cache-control", "max-age=0, private, must-revalidate"},
+           {"content-length", "5"},
+           {"date", "Mon, 22 Mar 2021 11:37:18 GMT"},
+           {"server", "Cowboy"}
+         ],
+         status: 200
+       }}
+
+  Server keeps returning 500:
+
+      iex> Requests.get("http://localhost:4000", retry: true)
+      # Logs:
+      # 12:40:09.186 [error] Got response with status 500
+      # Headers: [...]
+      # Will retry in 2000ms, 2 attempts left
+      # 12:40:11.188 [error] Got response with status 500
+      # Headers: [...]
+      # Will retry in 2000ms, 1 attempt left
+      {:ok,
+       %Finch.Response{
+         body: "oops",
+         headers: [...],
+         status: 500
+       }}
+
   """
   @doc middleware: :error
   def retry(response_or_exception, opts \\ [])
