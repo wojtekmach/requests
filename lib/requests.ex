@@ -237,45 +237,17 @@ defmodule Requests do
     end
   catch
     {:__requests_retry__, result, max_count, delay} ->
-      exception? = match?(%{__exception__: true}, result)
-
-      if attempt < max_count do
-        log_retry(result, exception?, attempt, max_count, delay)
-        Process.sleep(delay)
-        do_request(request, finch, response_middleware, error_middleware, opts, attempt + 1)
-      else
-        if exception? do
-          {:error, result}
-        else
-          {:ok, result}
-        end
-      end
-  end
-
-  defp log_retry(result, exception?, attempt, max_count, delay) do
-    attempts_left =
-      case max_count - attempt do
-        1 -> "1 attempt"
-        n -> "#{n} attempts"
-      end
-
-    message = ["\nWill retry in #{delay}ms, ", attempts_left, " left"]
-
-    if exception? do
-      Logger.error([
-        "Got exception\n",
-        "** (#{inspect(result.__struct__)}) ",
-        Exception.message(result),
-        message
-      ])
-    else
-      Logger.error([
-        "Got response with status #{result.status}\n",
-        "Headers: ",
-        result.headers |> inspect(pretty: true) |> String.trim_trailing(),
-        message
-      ])
-    end
+      retry(
+        request,
+        finch,
+        response_middleware,
+        error_middleware,
+        result,
+        max_count,
+        delay,
+        opts,
+        attempt
+      )
   end
 
   defp run_middleware(struct, middleware) do
@@ -641,6 +613,58 @@ defmodule Requests do
     max_count = Keyword.get(opts, :retry_max_count, 2)
     delay = Keyword.get(opts, :retry_delay, 2000)
     throw({:__requests_retry__, response_or_exception, max_count, delay})
+  end
+
+  defp retry(
+         request,
+         finch,
+         response_middleware,
+         error_middleware,
+         result,
+         max_count,
+         delay,
+         opts,
+         attempt
+       ) do
+    exception? = match?(%{__exception__: true}, result)
+
+    if attempt < max_count do
+      log_retry(result, exception?, attempt, max_count, delay)
+      Process.sleep(delay)
+      do_request(request, finch, response_middleware, error_middleware, opts, attempt + 1)
+    else
+      if exception? do
+        {:error, result}
+      else
+        {:ok, result}
+      end
+    end
+  end
+
+  defp log_retry(result, exception?, attempt, max_count, delay) do
+    attempts_left =
+      case max_count - attempt do
+        1 -> "1 attempt"
+        n -> "#{n} attempts"
+      end
+
+    message = ["\nWill retry in #{delay}ms, ", attempts_left, " left"]
+
+    if exception? do
+      Logger.error([
+        "Got exception\n",
+        "** (#{inspect(result.__struct__)}) ",
+        Exception.message(result),
+        message
+      ])
+    else
+      Logger.error([
+        "Got response with status #{result.status}\n",
+        "Headers: ",
+        result.headers |> inspect(pretty: true) |> String.trim_trailing(),
+        message
+      ])
+    end
   end
 
   ## Utilities
