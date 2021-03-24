@@ -266,7 +266,7 @@ defmodule RequestsTest do
       ],
       response_middleware: [
         {IO, :inspect, [[label: :initial_response]]},
-        {Requests, :decode_response_body, []}
+        {Requests, :decode, []}
       ]
     ]
 

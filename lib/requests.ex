@@ -22,7 +22,7 @@ defmodule Requests do
 
     * Extensible via request, response, and error middleware
 
-    * Automatic body encoding/decoding (via the `encode_request_body/2` and `decode_response_body/2`
+    * Automatic body encoding/decoding (via the `encode/2` and `decode/2`
       middleware)
 
     * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
@@ -98,14 +98,14 @@ defmodule Requests do
 
       * `normalize_request_headers/1`
       * `default_headers/1`
-      * `encode_request_body/2` with `opts`
+      * `encode/2` with `opts`
       * `compress/2` with `opts[:compress]` (if set)
 
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
       * `retry/2` with `opts` (if `retry: true` or any of the `:retry_*` options are set)
       * `decompress/1`
-      * `decode_response_body/2` with `opts`
+      * `decode/2` with `opts`
 
     * `:error_middleware` - list of middleware to run the error through, defaults to using:
 
@@ -155,7 +155,7 @@ defmodule Requests do
         ],
         response_middleware: [
           {IO, :inspect, [[label: :initial_response]]},
-          {Requests, :decode_response_body, []}
+          {Requests, :decode, []}
         ]
       ]
 
@@ -174,7 +174,7 @@ defmodule Requests do
         [
           &Requests.normalize_request_headers/1,
           &Requests.default_headers/1,
-          {Requests, :encode_request_body, [opts]}
+          {Requests, :encode, [opts]}
         ]
         |> append_if(compress, &Requests.compress(&1, compress))
       end)
@@ -186,7 +186,7 @@ defmodule Requests do
       Keyword.get_lazy(opts, :response_middleware, fn ->
         [
           &Requests.decompress/1,
-          {Requests, :decode_response_body, [opts]}
+          {Requests, :decode, [opts]}
         ]
         |> prepend_if(retry?, &Requests.retry(&1, retry_opts))
       end)
@@ -333,7 +333,7 @@ defmodule Requests do
 
   """
   @doc middleware: :request
-  def encode_request_body(request, opts \\ []) do
+  def encode(request, opts \\ []) do
     case request.body do
       {:form, data} ->
         encode(request, URI.encode_query(data), "application/x-www-form-urlencoded")
@@ -511,7 +511,7 @@ defmodule Requests do
 
   """
   @doc middleware: :response
-  def decode_response_body(response, opts \\ []) do
+  def decode(response, opts \\ []) do
     json_decoder =
       Keyword.get_lazy(opts, :json_decoder, fn ->
         if Code.ensure_loaded?(Jason) do
