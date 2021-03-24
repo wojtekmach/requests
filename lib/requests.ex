@@ -22,8 +22,7 @@ defmodule Requests do
 
     * Extensible via request, response, and error middleware
 
-    * Automatic body encoding/decoding (via the `encode/2` and `decode/2`
-      middleware)
+    * Automatic body encoding/decoding (via the `encode/2` and `decode/2` middleware)
 
     * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
 
@@ -141,10 +140,11 @@ defmodule Requests do
   Notice that some of the built-in middleware functions take more than one argument. In order to
   use them, you have a couple options:
 
-    - use [capture operator](`Kernel.SpecialForms.&`), for example: `&compress(&1, ["gzip"])`
+    - use [capture operator](`Kernel.SpecialForms.&`), for example:
+      `&Requests.compress(&1, ["gzip"])`
 
-    - use a `{module, function, args}` tuple, where the first argument (request or response)
-      will be automatically prepended, for example: `{Requests, :compress, ["gzip"]}`
+    - use a `{module, function, args}` tuple, where the first argument (request, response, or
+      exception) will be automatically prepended, for example: `{Requests, :compress, ["gzip"]}`
 
   ### Example
 
