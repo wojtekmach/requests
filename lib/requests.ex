@@ -104,7 +104,7 @@ defmodule Requests do
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
 
       * `retry/2` with `opts` (if `retry: true` or any of the `:retry_*` options are set)
-      * `decompress/1`
+      * `decompress/2` with `opts`
       * `decode/2` with `opts`
 
     * `:error_middleware` - list of middleware to run the error through, defaults to using:
@@ -128,7 +128,7 @@ defmodule Requests do
   struct. An example is `default_headers/1`.
 
   A response middleware is any function that accepts and returns a possibly updated
-  `Finch.Response` struct. An example is `decompress/1`.
+  `Finch.Response` struct. An example is `decompress/2`.
 
   An error middleware is any function that accepts and returns a possibly updated exception struct.
   An example is `retry/2`.
@@ -185,7 +185,7 @@ defmodule Requests do
     response_middleware =
       Keyword.get_lazy(opts, :response_middleware, fn ->
         [
-          &Requests.decompress/1,
+          {Requests, :decompress, [opts]},
           {Requests, :decode, [opts]}
         ]
         |> prepend_if(retry?, &Requests.retry(&1, retry_opts))
@@ -194,7 +194,7 @@ defmodule Requests do
     error_middleware =
       Keyword.get_lazy(opts, :error_middleware, fn ->
         if retry? do
-          [&Requests.retry(&1, retry_opts)]
+          [{Requests, :retry, [retry_opts]}]
         else
           []
         end
@@ -466,28 +466,48 @@ defmodule Requests do
   @doc """
   Decompresses the response body based on the `content-encoding` header.
 
-  Supported values: `"gzip"`, `"x-gzip"`, `"deflate"`, and `"identity"`.
+  ## Options
+
+    * `:gzip_decoder` - used for the `"gzip"` and `"x-gzip"` values. Defaults to
+      [`&:zlib.gunzip/1`](`:zlib.gunzip/1`)
+
+    * `:deflate_decoder` - used for the `"deflate"` value. Defaults to
+      [`&:zlib.unzip/1`](`:zlib.unzip/1`)
+
   """
   @doc middleware: :response
-  def decompress(response) do
+  def decompress(response, opts \\ []) do
     compression_algorithms = get_content_encoding_header(response.headers)
-    update_in(response.body, &decompress_body(&1, compression_algorithms))
+    update_in(response.body, &decompress_body(&1, compression_algorithms, opts))
   end
 
-  defp decompress_body(body, algorithms) do
-    Enum.reduce(algorithms, body, &decompress_with_algorithm/2)
+  defp decompress_body(body, algorithms, opts) do
+    Enum.reduce(algorithms, body, &decompress_with_algorithm(&1, &2, opts))
   end
 
-  defp decompress_with_algorithm(gzip, body) when gzip in ["gzip", "x-gzip"],
-    do: :zlib.gunzip(body)
+  defp decompress_with_algorithm(gzip, body, opts) when gzip in ["gzip", "x-gzip"] do
+    decoder =
+      Keyword.get_lazy(opts, :gzip_decoder, fn ->
+        &:zlib.gunzip/1
+      end)
 
-  defp decompress_with_algorithm("deflate", body),
-    do: :zlib.unzip(body)
+    decoder.(body)
+  end
 
-  defp decompress_with_algorithm("identity", body),
-    do: body
+  defp decompress_with_algorithm("deflate", body, opts) do
+    decoder =
+      Keyword.get_lazy(opts, :deflate_decoder, fn ->
+        &:zlib.unzip/1
+      end)
 
-  defp decompress_with_algorithm(algorithm, _body),
+    decoder.(body)
+  end
+
+  defp decompress_with_algorithm("identity", body, _opts) do
+    body
+  end
+
+  defp decompress_with_algorithm(algorithm, _body, _opts),
     do: raise("unsupported decompression algorithm: #{inspect(algorithm)}")
 
   @doc """
@@ -500,6 +520,9 @@ defmodule Requests do
 
     * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
       [`&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)`](`NimbleCSV.RFC4180.parse_string/2`)
+
+    * `:gzip_decoder` - if set, used on the `"application/(x-)gzip"` content type. Defaults to
+      [`&:zlib.gunzip/1`](`:zlib.gunzip/1`)
 
   ## Examples
 
@@ -526,6 +549,11 @@ defmodule Requests do
         end
       end)
 
+    gzip_decoder =
+      Keyword.get_lazy(opts, :gzip_decoder, fn ->
+        &:zlib.gunzip/1
+      end)
+
     body =
       case get_header(response.headers, "content-type") do
         "application/json" <> _ when json_decoder != nil ->
@@ -533,6 +561,12 @@ defmodule Requests do
 
         "text/csv" <> _ when csv_decoder != nil ->
           csv_decoder.(response.body)
+
+        "application/gzip" ->
+          gzip_decoder.(response.body)
+
+        "application/x-gzip" ->
+          gzip_decoder.(response.body)
 
         _ ->
           response.body
