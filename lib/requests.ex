@@ -521,8 +521,11 @@ defmodule Requests do
     * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
       [`&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)`](`NimbleCSV.RFC4180.parse_string/2`)
 
-    * `:gzip_decoder` - if set, used on the `"application/(x-)gzip"` content type. Defaults to
+    * `:gzip_decoder` - used on the `"application/(x-)gzip"` content type. Defaults to
       [`&:zlib.gunzip/1`](`:zlib.gunzip/1`)
+
+    * `:zip_decoder` - used on the `"application/zip"` content type. Defaults to using
+      `:zip.unzip/2`
 
   ## Examples
 
@@ -554,6 +557,14 @@ defmodule Requests do
         &:zlib.gunzip/1
       end)
 
+    zip_decoder =
+      Keyword.get_lazy(opts, :zip_decoder, fn ->
+        fn body ->
+          {:ok, files} = :zip.unzip(body, [:memory])
+          files
+        end
+      end)
+
     body =
       case get_header(response.headers, "content-type") do
         "application/json" <> _ when json_decoder != nil ->
@@ -567,6 +578,9 @@ defmodule Requests do
 
         "application/x-gzip" ->
           gzip_decoder.(response.body)
+
+        "application/zip" ->
+          zip_decoder.(response.body)
 
         _ ->
           response.body

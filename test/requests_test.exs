@@ -100,6 +100,18 @@ defmodule RequestsTest do
     assert Requests.get!(c.url <> "/gzip").body == "foo"
   end
 
+  test "decoding zip", c do
+    Bypass.expect(c.bypass, "GET", "/zip", fn conn ->
+      {:ok, {'zip', body}} = :zip.create('zip', [{'a.txt', "alice"}], [:memory])
+
+      conn
+      |> put_resp_content_type("application/zip", nil)
+      |> send_resp(200, body)
+    end)
+
+    assert Requests.get!(c.url <> "/zip").body == [{'a.txt', "alice"}]
+  end
+
   test "compress/decompress", c do
     Bypass.expect(c.bypass, "POST", "/deflate+gzip", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
