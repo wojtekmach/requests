@@ -515,17 +515,14 @@ defmodule Requests do
 
   ## Options
 
-    * `:json_decoder` - if set, used on the `"application/json*"` content type. Defaults to
-      [`&Jason.decode/1`](`Jason.decode/1`)
+    * `:json_decoder` - if set, used for JSON. Defaults to [`&Jason.decode/1`](`Jason.decode/1`)
 
-    * `:csv_decoder` - if set, used on the `"text/csv*"` content type. Defaults to
+    * `:csv_decoder` - if set, used for CSV. Defaults to
       [`&NimbleCSV.RFC4180.parse_string(&1, skip_headers: false)`](`NimbleCSV.RFC4180.parse_string/2`)
 
-    * `:gzip_decoder` - used on the `"application/(x-)gzip"` content type. Defaults to
-      [`&:zlib.gunzip/1`](`:zlib.gunzip/1`)
+    * `:gzip_decoder` - used for gzip. Defaults to [`&:zlib.gunzip/1`](`:zlib.gunzip/1`)
 
-    * `:zip_decoder` - used on the `"application/zip"` content type. Defaults to using
-      `:zip.unzip/2`
+    * `:zip_decoder` - used for ZIP. Defaults to using `:zip.unzip/2`
 
   ## Examples
 
@@ -565,21 +562,23 @@ defmodule Requests do
         end
       end)
 
+    map = response.headers |> get_header("content-type") |> parse_content_type()
+
     body =
-      case get_header(response.headers, "content-type") do
-        "application/json" <> _ when json_decoder != nil ->
+      case map.suffix || map.subtype do
+        "json" <> _ when json_decoder != nil ->
           json_decoder.(response.body)
 
-        "text/csv" <> _ when csv_decoder != nil ->
+        "csv" <> _ when csv_decoder != nil ->
           csv_decoder.(response.body)
 
-        "application/gzip" ->
+        "gzip" ->
           gzip_decoder.(response.body)
 
-        "application/x-gzip" ->
+        "x-gzip" ->
           gzip_decoder.(response.body)
 
-        "application/zip" ->
+        "zip" ->
           zip_decoder.(response.body)
 
         _ ->
@@ -778,5 +777,23 @@ defmodule Requests do
         :ok = :zlib.close(z)
       end
     )
+  end
+
+  # https://tools.ietf.org/html/rfc6838#section-4.2
+  defp parse_content_type(term) do
+    with true <- is_binary(term),
+         [left | _params] <- String.split(term, ";"),
+         [type, subtype] = String.split(left, "/") do
+      suffix =
+        case String.split(subtype, "+") do
+          [_] -> nil
+          parts -> Enum.at(parts, -1)
+        end
+
+      %{type: type, subtype: subtype, suffix: suffix}
+    else
+      _ ->
+        %{type: nil, subtype: nil, suffix: nil}
+    end
   end
 end

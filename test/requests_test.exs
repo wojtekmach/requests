@@ -65,6 +65,18 @@ defmodule RequestsTest do
     assert Requests.post!(c.url <> "/json", {:json, body}, opts).body == "fake"
   end
 
+  test "decoding json suffix", c do
+    Bypass.expect(c.bypass, "GET", "/foo+json", fn conn ->
+      body = Jason.encode_to_iodata!(["foo", "bar"])
+
+      conn
+      |> put_resp_content_type("application/vnd.foo+json;charset=utf-8")
+      |> send_resp(200, body)
+    end)
+
+    assert Requests.get!(c.url <> "/foo+json").body == ["foo", "bar"]
+  end
+
   test "encoding/decoding csv", c do
     Bypass.expect(c.bypass, "POST", "/csv", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
