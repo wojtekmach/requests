@@ -26,6 +26,8 @@ defmodule Requests do
 
     * Automatic compression/decompression (via the `compress/2` and `decompress/1` middleware)
 
+    * Basic authentication (via the `auth/2` middleware)
+
     * Retries on errors (via the `retry/2` middleware)
 
     * Request streaming (by setting body as `{:stream, enumerable}`)
@@ -98,6 +100,7 @@ defmodule Requests do
       * `normalize_request_headers/1`
       * `default_headers/1`
       * `encode/2` with `opts`
+      * `auth/2` with `opts[:auth]` (if set)
       * `compress/2` with `opts[:compress]` (if set)
 
     * `:response_middleware` - list of middleware to run the response through, defaults to using:
@@ -170,13 +173,15 @@ defmodule Requests do
     request_middleware =
       Keyword.get_lazy(opts, :request_middleware, fn ->
         compress = Keyword.get(opts, :compress, false)
+        auth = Keyword.get(opts, :auth, false)
 
         [
           &Requests.normalize_request_headers/1,
           &Requests.default_headers/1,
           {Requests, :encode, [opts]}
         ]
-        |> append_if(compress, &Requests.compress(&1, compress))
+        |> append_if(auth, {Requests, :auth, [auth]})
+        |> append_if(compress, {Requests, :compress, [compress]})
       end)
 
     retry_opts = Keyword.take(opts, [:retry_max_count, :retry_delay])
@@ -265,6 +270,45 @@ defmodule Requests do
   end
 
   ## Request middleware
+
+  @doc """
+  Sets request authentication.
+
+  `auth` can be one of:
+
+    * `{username, password}` - same as `{:basic, username, password}`
+
+    * `{:basic, username, password}` - uses Basic HTTP authentication
+
+    * `{:bearer, token}` - sets OAuth 2.0 bearer token
+
+  ## Examples
+
+      iex> Requests.get!("https://httpbin.org/basic-auth/foo/bar", auth: {"bad", "bad"}).status
+      401
+      iex> Requests.get!("https://httpbin.org/basic-auth/foo/bar", auth: {"foo", "bar"}).status
+      200
+
+  """
+  def auth(request, auth)
+
+  def auth(request, {username, password}) when is_binary(username) and is_binary(password) do
+    auth(request, {:basic, username, password})
+  end
+
+  def auth(request, {:basic, username, password}) do
+    auth(request, "Basic", Base.encode64("#{username}:#{password}"))
+  end
+
+  def auth(request, {:bearer, token}) when is_binary(token) do
+    auth(request, "Bearer", token)
+  end
+
+  defp auth(request, type, value) do
+    update_in(request.headers, fn headers ->
+      put_new_header(headers, "authorization", "#{type} #{value}")
+    end)
+  end
 
   @doc """
   Normalizes request headers.
