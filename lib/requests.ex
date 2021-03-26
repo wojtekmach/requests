@@ -217,7 +217,8 @@ defmodule Requests do
             %Finch.Response{} = response ->
               {:cont, {:ok, response}}
 
-            exception when is_exception(exception) ->
+            # TODO: change to is_exception(exception) when we require Elixir v1.11
+            %{__exception__: true} = exception ->
               {:halt, {:error, exception}}
           end
         end)
@@ -227,7 +228,8 @@ defmodule Requests do
           {_, response_or_error} = acc
 
           case run(item, response_or_error) do
-            exception when is_exception(exception) ->
+            # TODO: change to is_exception(exception) when we require Elixir v1.11
+            %{__exception__: true} = exception ->
               {:cont, {:error, exception}}
 
             %Finch.Response{} = response ->
@@ -652,7 +654,7 @@ defmodule Requests do
   @doc middleware: :error
   def retry(response_or_exception, opts \\ [])
 
-  def retry(%Finch.Response{} = response, _opts) when response.status < 500 do
+  def retry(%Finch.Response{status: status} = response, _opts) when status < 500 do
     response
   end
 
