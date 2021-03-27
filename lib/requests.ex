@@ -10,53 +10,8 @@ defmodule Requests.Application do
   end
 end
 
-defmodule Requests.Conn do
-  @moduledoc """
-  The connection struct.
-
-  Fields:
-
-    * `:request`
-    * `:response`
-    * `:exception`
-    * `:private`
-
-  """
-
-  defstruct [
-    :request,
-    :response,
-    :exception,
-    :finch,
-    :finch_opts,
-    :response_middleware,
-    :error_middleware,
-    private: %{}
-  ]
-
-  @derive {Inspect, only: [:request, :response, :exception, :private]}
-
-  def put_new_req_header(conn, name, value) do
-    if Enum.any?(conn.request.headers, fn {key, _} -> String.downcase(key) == name end) do
-      conn
-    else
-      update_in(conn.request.headers, &[{name, value} | &1])
-    end
-  end
-
-  def put_resp(conn, %Finch.Response{} = response) do
-    %{conn | exception: nil, response: response}
-  end
-
-  def put_exception(conn, %{__exception__: true} = exception) do
-    %{conn | exception: exception, response: nil}
-  end
-end
-
 defmodule Requests do
   require Logger
-
-  alias Requests.Conn
 
   @vsn Mix.Project.config()[:version]
 
@@ -85,52 +40,11 @@ defmodule Requests do
       iex> Requests.post!("https://httpbin.org/post", {:form, comments: "hello!"}).body["form"]
       %{"comments" => "hello!"}
 
-  ## `Requests.Conn` and middleware
+  ## Credits
 
-  Requests is built around a connection, the `Requests.Conn` struct, and a series of operations
-  the connection can go through, the middleware.
-
-  There are three types of middleware:
-
-    * request middleware - executed before making the actual HTTP request to the server.
-      An example is `default_headers/1`.
-
-    * response middleware - executed after getting an HTTP response from the server. An example
-      is `decompress/2`.
-
-    * error middleware - executed after getting an error. An example is `retry/2`.
-
-  A response middleware may call `Requests.Conn.put_exception/2` to signal that an exception
-  should be returned instead of a response. In that case, no further response middleware will be
-  executed and the conn will go through all error middleware instead. Similarly, an error
-  middleware may call `Requests.Conn.put_resp/2` to signal that a response should be returned
-  instead of an exception. In that case, no further error middleware will be executed and the
-  conn will go through all response middleware instead.
-
-  Notice that some of the built-in middleware functions take more than one argument. In order to
-  use them, you have a couple options:
-
-    * use [capture operator](`Kernel.SpecialForms.&/1`), for example:
-      `&Requests.compress(&1, ["gzip"])`
-
-    * use a `{module, function, args}` tuple, where the first argument, the `conn`, will be
-      automatically prepended, for example: `{Requests, :compress, ["gzip"]}`
-
-  ### Examples
-
-      opts = [
-        request_middleware: [
-          &Requests.default_headers/1,
-          fn conn -> IO.inspect(conn.request, label: :final_request) ; conn end
-        ],
-        response_middleware: [
-          fn conn -> IO.inspect(conn.response, label: :initial_response) ; conn end,
-          {Requests, :decode, []}
-        ]
-      ]
-
-      Requests.get!("https://httpbin.org/json", opts)
-      |> IO.inspect(label: :final_response)
+    * [Requests](https://requests.readthedocs.io)
+    * [Tesla](https://github.com/teamon/tesla)
+    * [Finch](https://github.com/keathley/finch) (and [Mint](https://github.com/elixir-mint/mint) & [NimblePool](https://github.com/dashbitco/nimble_pool)!)
 
   """
 
@@ -177,7 +91,7 @@ defmodule Requests do
 
   Returns `{:ok, response}` or `{:error, exception}`.
 
-  ## Options
+  Options:
 
     * `:headers` - list of request headers, defaults to `[]`.
 
@@ -208,19 +122,48 @@ defmodule Requests do
     * `:receive_timeout` - the maximum time to wait for a response, defaults to `15000`. See
       `Finch.request/3` for more information.
 
-  ## Examples
+  ## Middleware
 
-      iex> {:ok, response} = Requests.request(:get, "https://httpbin.org/json", "")
-      iex> response.status
-      200
+  `Requests` supports request, response, and error middleware.
 
-      iex> {:ok, response} = Requests.request(:get, "https://httpstat.us/500", "")
-      iex> response.status
-      500
+  A request middleware is any function that accepts and returns a possibly updated `Finch.Request`
+  struct. An example is `default_headers/1`.
 
-      iex> {:error, exception} = Requests.request(:get, "http://localhost:9999", "")
-      iex> exception.reason
-      :econnrefused
+  A response middleware is any function that accepts and returns a possibly updated
+  `Finch.Response` struct. An example is `decompress/2`.
+
+  An error middleware is any function that accepts and returns a possibly updated exception struct.
+  An example is `retry/2`.
+
+  A response middleware may also return an `exception` in which case the final return value is
+  switched to `{:error, exception}` however no further middleware is run on the exception.
+  Similarly, an error middleware may return a `response` in which case the final return value is
+  switched to `{:ok, response}` however no further middleware is run on the response.
+
+  Notice that some of the built-in middleware functions take more than one argument. In order to
+  use them, you have a couple options:
+
+    - use [capture operator](`Kernel.SpecialForms.&`), for example:
+      `&Requests.compress(&1, ["gzip"])`
+
+    - use a `{module, function, args}` tuple, where the first argument (request, response, or
+      exception) will be automatically prepended, for example: `{Requests, :compress, ["gzip"]}`
+
+  ### Example
+
+      opts = [
+        request_middleware: [
+          &Requests.default_headers/1,
+          &IO.inspect(&1, label: :final_request),
+        ],
+        response_middleware: [
+          {IO, :inspect, [[label: :initial_response]]},
+          {Requests, :decode, []}
+        ]
+      ]
+
+      Requests.get!("https://httpbin.org/json", opts)
+      |> IO.inspect(label: :final_response)
 
   """
   def request(method, url, body, opts \\ []) when is_binary(url) and is_list(opts) do
@@ -264,65 +207,58 @@ defmodule Requests do
 
     headers = Keyword.get(opts, :headers, [])
 
-    request = Finch.build(method, url, headers, body)
-
-    conn = %Requests.Conn{
-      request: request,
-      finch: finch,
-      finch_opts: finch_opts,
-      response_middleware: response_middleware,
-      error_middleware: error_middleware
-    }
-
-    conn = Enum.reduce(request_middleware, conn, &run/2)
-    do_request(conn)
+    Finch.build(method, url, headers, body)
+    |> run_middleware(request_middleware)
+    |> do_request(finch, response_middleware, error_middleware, finch_opts)
   end
 
-  defp do_request(conn) do
-    conn =
-      case Finch.request(conn.request, conn.finch, conn.finch_opts) do
-        {:ok, response} ->
-          conn
-          |> Conn.put_resp(response)
-          |> run_response_middleware()
+  defp do_request(request, finch, response_middleware, error_middleware, opts, attempt \\ 0) do
+    case Finch.request(request, finch, opts) do
+      {:ok, response} ->
+        Enum.reduce_while(response_middleware, {:ok, response}, fn item, acc ->
+          {_, response_or_error} = acc
 
-        {:error, exception} ->
-          conn
-          |> Conn.put_exception(exception)
-          |> run_error_middleware()
-      end
+          case run(item, response_or_error) do
+            %Finch.Response{} = response ->
+              {:cont, {:ok, response}}
 
-    if conn.exception do
-      {:error, conn.exception}
-    else
-      {:ok, conn.response}
+            # TODO: change to is_exception(exception) when we require Elixir v1.11
+            %{__exception__: true} = exception ->
+              {:halt, {:error, exception}}
+          end
+        end)
+
+      {:error, exception} ->
+        Enum.reduce_while(error_middleware, {:error, exception}, fn item, acc ->
+          {_, response_or_error} = acc
+
+          case run(item, response_or_error) do
+            # TODO: change to is_exception(exception) when we require Elixir v1.11
+            %{__exception__: true} = exception ->
+              {:cont, {:error, exception}}
+
+            %Finch.Response{} = response ->
+              {:halt, {:ok, response}}
+          end
+        end)
     end
+  catch
+    {:__requests_retry__, result, max_count, delay} ->
+      retry(
+        request,
+        finch,
+        response_middleware,
+        error_middleware,
+        result,
+        max_count,
+        delay,
+        opts,
+        attempt
+      )
   end
 
-  defp run_response_middleware(conn) do
-    Enum.reduce_while(conn.response_middleware, conn, fn runnable, acc ->
-      acc = run(runnable, acc)
-
-      if acc.exception do
-        acc = run_error_middleware(acc)
-        {:halt, acc}
-      else
-        {:cont, acc}
-      end
-    end)
-  end
-
-  defp run_error_middleware(conn) do
-    Enum.reduce_while(conn.error_middleware, conn, fn runnable, acc ->
-      acc = run(runnable, acc)
-
-      if acc.exception do
-        {:cont, acc}
-      else
-        acc = run_response_middleware(acc)
-        {:halt, acc}
-      end
-    end)
+  defp run_middleware(struct, middleware) do
+    Enum.reduce(middleware, struct, &run/2)
   end
 
   defp run({mod, fun, args}, acc) do
@@ -352,15 +288,15 @@ defmodule Requests do
       200
 
   """
-  def auth(conn, auth)
+  def auth(request, auth)
 
-  def auth(conn, {username, password}) when is_binary(username) and is_binary(password) do
-    auth(conn, {:basic, username, password})
+  def auth(request, {username, password}) when is_binary(username) and is_binary(password) do
+    auth(request, {:basic, username, password})
   end
 
-  def auth(conn, {:basic, username, password}) do
+  def auth(request, {:basic, username, password}) do
     value = Base.encode64("#{username}:#{password}")
-    Conn.put_new_req_header(conn, "authorization", "Basic #{value}")
+    put_new_header(request, "authorization", "Basic #{value}")
   end
 
   @doc """
@@ -370,9 +306,9 @@ defmodule Requests do
   Non-atom names are returned as is.
   """
   @doc middleware: :request
-  def normalize_request_headers(conn) do
+  def normalize_request_headers(request) do
     headers =
-      for {name, value} <- conn.request.headers do
+      for {name, value} <- request.headers do
         if is_atom(name) do
           {name |> Atom.to_string() |> String.replace("_", "-"), value}
         else
@@ -380,7 +316,7 @@ defmodule Requests do
         end
       end
 
-    put_in(conn.request.headers, headers)
+    %{request | headers: headers}
   end
 
   @doc """
@@ -394,10 +330,10 @@ defmodule Requests do
 
   """
   @doc middleware: :request
-  def default_headers(conn) do
-    conn
-    |> Conn.put_new_req_header("user-agent", "requests/#{@vsn}")
-    |> Conn.put_new_req_header("accept-encoding", "gzip")
+  def default_headers(request) do
+    request
+    |> put_new_header("user-agent", "requests/#{@vsn}")
+    |> put_new_header("accept-encoding", "gzip")
   end
 
   @doc """
@@ -430,10 +366,10 @@ defmodule Requests do
 
   """
   @doc middleware: :request
-  def encode(conn, opts \\ []) do
-    case conn.request.body do
+  def encode(request, opts \\ []) do
+    case request.body do
       {:form, data} ->
-        encode(conn, URI.encode_query(data), "application/x-www-form-urlencoded")
+        encode(request, URI.encode_query(data), "application/x-www-form-urlencoded")
 
       {:json, data} ->
         encoder =
@@ -457,7 +393,7 @@ defmodule Requests do
             &Jason.encode_to_iodata!/1
           end)
 
-        encode(conn, encoder.(data), "application/json")
+        encode(request, encoder.(data), "application/json")
 
       {:csv, {:stream, data}} ->
         encoder =
@@ -481,7 +417,7 @@ defmodule Requests do
             &NimbleCSV.RFC4180.dump_to_stream/1
           end)
 
-        encode(conn, {:stream, encoder.(data)}, "text/csv")
+        encode(request, {:stream, encoder.(data)}, "text/csv")
 
       {:csv, data} ->
         encoder =
@@ -505,16 +441,16 @@ defmodule Requests do
             &NimbleCSV.RFC4180.dump_to_iodata/1
           end)
 
-        encode(conn, encoder.(data), "text/csv")
+        encode(request, encoder.(data), "text/csv")
 
       _ ->
-        conn
+        request
     end
   end
 
-  defp encode(conn, body, content_type) do
-    put_in(conn.request.body, body)
-    |> Conn.put_new_req_header("content-type", content_type)
+  defp encode(request, body, content_type) do
+    %{request | body: body}
+    |> put_new_header("content-type", content_type)
   end
 
   @doc """
@@ -525,12 +461,10 @@ defmodule Requests do
   This function also sets the appropriate `content-encoding` header (unless already set.)
   """
   @doc middleware: :request
-  def compress(conn, algorithms) when is_list(algorithms) do
-    update_in(conn.request.body, &compress_body(&1, algorithms))
-    |> Conn.put_new_req_header(
-      "content-encoding",
-      Enum.map_join(algorithms, ",", &Atom.to_string/1)
-    )
+  def compress(request, algorithms) when is_list(algorithms) do
+    request
+    |> Map.update!(:body, &compress_body(&1, algorithms))
+    |> put_new_header("content-encoding", Enum.map_join(algorithms, ",", &Atom.to_string/1))
   end
 
   defp compress_body(body, algorithms) do
@@ -563,9 +497,9 @@ defmodule Requests do
 
   """
   @doc middleware: :response
-  def decompress(conn, opts \\ []) do
-    compression_algorithms = get_content_encoding_header(conn.response.headers)
-    update_in(conn.response.body, &decompress_body(&1, compression_algorithms, opts))
+  def decompress(response, opts \\ []) do
+    compression_algorithms = get_content_encoding_header(response.headers)
+    update_in(response.body, &decompress_body(&1, compression_algorithms, opts))
   end
 
   defp decompress_body(body, algorithms, opts) do
@@ -621,7 +555,7 @@ defmodule Requests do
 
   """
   @doc middleware: :response
-  def decode(conn, opts \\ []) do
+  def decode(response, opts \\ []) do
     json_decoder =
       Keyword.get_lazy(opts, :json_decoder, fn ->
         if Code.ensure_loaded?(Jason) do
@@ -649,31 +583,30 @@ defmodule Requests do
         end
       end)
 
-    map = conn.response.headers |> get_header("content-type") |> parse_content_type()
-    body = conn.response.body
+    map = response.headers |> get_header("content-type") |> parse_content_type()
 
     body =
       case map.suffix || map.subtype do
         "json" <> _ when json_decoder != nil ->
-          json_decoder.(body)
+          json_decoder.(response.body)
 
         "csv" <> _ when csv_decoder != nil ->
-          csv_decoder.(body)
+          csv_decoder.(response.body)
 
         "gzip" ->
-          gzip_decoder.(body)
+          gzip_decoder.(response.body)
 
         "x-gzip" ->
-          gzip_decoder.(body)
+          gzip_decoder.(response.body)
 
         "zip" ->
-          zip_decoder.(body)
+          zip_decoder.(response.body)
 
         _ ->
-          body
+          response.body
       end
 
-    put_in(conn.response.body, body)
+    %{response | body: body}
   end
 
   @doc """
@@ -721,7 +654,7 @@ defmodule Requests do
 
   Server keeps returning 500:
 
-      iex> Requests.get("https://httpstat.us/500", retry: true)
+      iex> Requests.get("http://localhost:4000", retry: true)
       # Logs:
       # 12:40:09.186 [error] Got response with status 500
       # Headers: [...]
@@ -738,55 +671,45 @@ defmodule Requests do
 
   """
   @doc middleware: :error
+  def retry(response_or_exception, opts \\ [])
 
-  def retry(conn, opts)
-
-  def retry(%{response: %{status: status}} = conn, _opts) when status < 500 do
-    conn
+  def retry(%Finch.Response{status: status} = response, _opts) when status < 500 do
+    response
   end
 
-  def retry(conn, opts) do
+  def retry(response_or_exception, opts) do
     max_count = Keyword.get(opts, :retry_max_count, 2)
     delay = Keyword.get(opts, :retry_delay, 2000)
-
-    conn =
-      case Map.fetch(conn.private, :retry_attempt) do
-        {:ok, _} ->
-          conn
-
-        :error ->
-          update_in(conn.private, &Map.put(&1, :retry_attempt, 0))
-      end
-
-    retry(conn, max_count, delay)
+    throw({:__requests_retry__, response_or_exception, max_count, delay})
   end
 
-  defp retry(conn, max_count, delay) do
-    attempt = conn.private.retry_attempt
+  defp retry(
+         request,
+         finch,
+         response_middleware,
+         error_middleware,
+         result,
+         max_count,
+         delay,
+         opts,
+         attempt
+       ) do
+    exception? = match?(%{__exception__: true}, result)
 
     if attempt < max_count do
-      log_retry(conn, attempt, max_count, delay)
-      conn = update_in(conn.private.retry_attempt, &(&1 + 1))
+      log_retry(result, exception?, attempt, max_count, delay)
       Process.sleep(delay)
-
-      case Finch.request(conn.request, conn.finch, conn.finch_opts) do
-        {:ok, %{status: status} = response} when status < 500 ->
-          Conn.put_resp(conn, response)
-
-        {:ok, response} ->
-          conn = Conn.put_resp(conn, response)
-          retry(conn, max_count, delay)
-
-        {:error, exception} ->
-          conn = Conn.put_exception(conn, exception)
-          retry(conn, max_count, delay)
-      end
+      do_request(request, finch, response_middleware, error_middleware, opts, attempt + 1)
     else
-      conn
+      if exception? do
+        {:error, result}
+      else
+        {:ok, result}
+      end
     end
   end
 
-  defp log_retry(conn, attempt, max_count, delay) do
+  defp log_retry(result, exception?, attempt, max_count, delay) do
     attempts_left =
       case max_count - attempt do
         1 -> "1 attempt"
@@ -795,18 +718,18 @@ defmodule Requests do
 
     message = ["\nWill retry in #{delay}ms, ", attempts_left, " left"]
 
-    if conn.exception do
+    if exception? do
       Logger.error([
         "Got exception\n",
-        "** (#{inspect(conn.exception.__struct__)}) ",
-        Exception.message(conn.exception),
+        "** (#{inspect(result.__struct__)}) ",
+        Exception.message(result),
         message
       ])
     else
       Logger.error([
-        "Got response with status #{conn.response.status}\n",
+        "Got response with status #{result.status}\n",
         "Headers: ",
-        conn.response.headers |> inspect(pretty: true) |> String.trim_trailing(),
+        result.headers |> inspect(pretty: true) |> String.trim_trailing(),
         message
       ])
     end
@@ -822,6 +745,14 @@ defmodule Requests do
         nil
       end
     end)
+  end
+
+  defp put_new_header(struct, name, value) do
+    if Enum.any?(struct.headers, fn {key, _} -> String.downcase(key) == name end) do
+      struct
+    else
+      update_in(struct.headers, &[{name, value} | &1])
+    end
   end
 
   defp get_content_encoding_header(headers) do

@@ -8,12 +8,6 @@ Demo:
 
 <a href="https://asciinema.org/a/tG4xlXUTIpmkf8IttoPtR2MN4" target="_blank"><img src="https://asciinema.org/a/tG4xlXUTIpmkf8IttoPtR2MN4.svg" /></a>
 
-## Credits
-
-  * [Requests](https://requests.readthedocs.io)
-  * [Tesla](https://github.com/teamon/tesla)
-  * [Finch](https://github.com/keathley/finch) (and [Mint](https://github.com/elixir-mint/mint) & [NimblePool](https://github.com/dashbitco/nimble_pool)!)
-
 ## License
 
 Copyright (c) 2020 Wojtek Mach
