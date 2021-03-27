@@ -296,13 +296,7 @@ defmodule Requests do
 
   def auth(request, {:basic, username, password}) do
     value = Base.encode64("#{username}:#{password}")
-    auth(request, "Basic", value)
-  end
-
-  defp auth(request, type, value) do
-    update_in(request.headers, fn headers ->
-      put_new_header(headers, "authorization", "#{type} #{value}")
-    end)
+    put_new_header(request, "authorization", "Basic #{value}")
   end
 
   @doc """
@@ -337,11 +331,9 @@ defmodule Requests do
   """
   @doc middleware: :request
   def default_headers(request) do
-    update_in(request.headers, fn headers ->
-      headers
-      |> put_new_header("user-agent", "requests/#{@vsn}")
-      |> put_new_header("accept-encoding", "gzip")
-    end)
+    request
+    |> put_new_header("user-agent", "requests/#{@vsn}")
+    |> put_new_header("accept-encoding", "gzip")
   end
 
   @doc """
@@ -457,11 +449,8 @@ defmodule Requests do
   end
 
   defp encode(request, body, content_type) do
-    %{
-      request
-      | body: body,
-        headers: put_new_header(request.headers, "content-type", content_type)
-    }
+    %{request | body: body}
+    |> put_new_header("content-type", content_type)
   end
 
   @doc """
@@ -475,16 +464,7 @@ defmodule Requests do
   def compress(request, algorithms) when is_list(algorithms) do
     request
     |> Map.update!(:body, &compress_body(&1, algorithms))
-    |> Map.update!(
-      :headers,
-      fn headers ->
-        put_new_header(
-          headers,
-          "content-encoding",
-          Enum.map_join(algorithms, ",", &Atom.to_string/1)
-        )
-      end
-    )
+    |> put_new_header("content-encoding", Enum.map_join(algorithms, ",", &Atom.to_string/1))
   end
 
   defp compress_body(body, algorithms) do
@@ -767,11 +747,11 @@ defmodule Requests do
     end)
   end
 
-  defp put_new_header(headers, name, value) do
-    if Enum.any?(headers, fn {key, _} -> String.downcase(key) == name end) do
-      headers
+  defp put_new_header(struct, name, value) do
+    if Enum.any?(struct.headers, fn {key, _} -> String.downcase(key) == name end) do
+      struct
     else
-      [{name, value} | headers]
+      update_in(struct.headers, &[{name, value} | &1])
     end
   end
 
