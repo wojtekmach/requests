@@ -188,9 +188,6 @@ defmodule RequestsTest do
         ["Basic " <> ^basic] ->
           Plug.Conn.send_resp(conn, 200, "ok")
 
-        ["Bearer secret"] ->
-          Plug.Conn.send_resp(conn, 200, "ok")
-
         _ ->
           Plug.Conn.send_resp(conn, 401, "unauthorized")
       end
@@ -198,9 +195,6 @@ defmodule RequestsTest do
 
     assert Requests.get!(c.url <> "/auth", auth: {"bad", "bad"}).status == 401
     assert Requests.get!(c.url <> "/auth", auth: {"foo", "bar"}).status == 200
-
-    assert Requests.get!(c.url <> "/auth", auth: {:bearer, "bad"}).status == 401
-    assert Requests.get!(c.url <> "/auth", auth: {:bearer, "secret"}).status == 200
   end
 
   @tag :capture_log

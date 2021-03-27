@@ -280,8 +280,6 @@ defmodule Requests do
 
     * `{:basic, username, password}` - uses Basic HTTP authentication
 
-    * `{:bearer, token}` - sets OAuth 2.0 bearer token
-
   ## Examples
 
       iex> Requests.get!("https://httpbin.org/basic-auth/foo/bar", auth: {"bad", "bad"}).status
@@ -297,11 +295,8 @@ defmodule Requests do
   end
 
   def auth(request, {:basic, username, password}) do
-    auth(request, "Basic", Base.encode64("#{username}:#{password}"))
-  end
-
-  def auth(request, {:bearer, token}) when is_binary(token) do
-    auth(request, "Bearer", token)
+    value = Base.encode64("#{username}:#{password}")
+    auth(request, "Basic", value)
   end
 
   defp auth(request, type, value) do
