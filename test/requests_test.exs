@@ -202,18 +202,17 @@ defmodule RequestsTest do
     pid = self()
 
     Bypass.expect(c.bypass, "GET", "/retry", fn conn ->
+      send(pid, :ping)
       Plug.Conn.send_resp(conn, 500, "oops")
     end)
 
     opts = [
       response_middleware: [
-        fn error ->
-          send(pid, :ping)
-          error
-        end,
         {Requests, :retry, [[retry_max_count: 3, retry_delay: 10]]}
       ],
-      error_middleware: []
+      error_middleware: [
+        fn _conn -> raise "unreachable" end
+      ]
     ]
 
     assert {:ok, %{status: 500, body: "oops"}} = Requests.get(c.url <> "/retry", opts)
@@ -229,13 +228,18 @@ defmodule RequestsTest do
     pid = self()
     Bypass.down(c.bypass)
 
+    handler = fn _event, _measurements, metadata, _ ->
+      assert metadata.error.reason == :econnrefused
+      send(pid, :ping)
+    end
+
+    :ok = :telemetry.attach(c.test, [:finch, :connect, :stop], handler, nil)
+
     opts = [
-      response_middleware: [],
+      response_middleware: [
+        fn _conn -> raise "unreachable" end
+      ],
       error_middleware: [
-        fn error ->
-          send(pid, :ping)
-          error
-        end,
         {Requests, :retry, [[retry_max_count: 3, retry_delay: 10]]}
       ]
     ]
@@ -246,6 +250,8 @@ defmodule RequestsTest do
     assert_received :ping
     assert_received :ping
     refute_received _
+
+    :ok = :telemetry.detach(c.test)
   end
 
   @tag :capture_log
@@ -269,7 +275,6 @@ defmodule RequestsTest do
     assert Agent.get(:counter, & &1) == 3
   end
 
-  @tag :capture_log
   test "response middleware returning error", c do
     Bypass.expect(c.bypass, "GET", "/error", fn conn ->
       Plug.Conn.send_resp(conn, 500, "oops")
@@ -277,30 +282,42 @@ defmodule RequestsTest do
 
     opts = [
       response_middleware: [
-        fn response ->
-          RuntimeError.exception(response.body)
-        end
+        fn conn ->
+          %{conn | exception: RuntimeError.exception(conn.response.body)}
+        end,
+        fn _conn -> raise "unreachable" end
       ],
-      error_middleware: []
+      error_middleware: [
+        fn conn ->
+          update_in(conn.exception.message, &("updated - " <> &1))
+        end
+      ]
     ]
 
-    assert {:error, %{message: "oops"}} = Requests.get(c.url <> "/error", opts)
+    assert {:error, %{message: "updated - oops"}} = Requests.get(c.url <> "/error", opts)
   end
 
   test "error middleware returning response", c do
     :ok = Bypass.down(c.bypass)
 
     opts = [
-      response_middleware: [],
-      error_middleware: [
-        fn exception ->
-          body = Exception.message(exception)
-          %Finch.Response{status: 200, body: body}
+      response_middleware: [
+        fn conn ->
+          update_in(conn.response.body, &("updated - " <> &1))
         end
+      ],
+      error_middleware: [
+        fn conn ->
+          body = "got: " <> Exception.message(conn.exception)
+          response = %Finch.Response{status: 200, headers: [], body: body}
+          Requests.Conn.put_resp(conn, response)
+        end,
+        fn _conn -> raise "unreachable" end
       ]
     ]
 
-    assert {:ok, %Finch.Response{status: 200}} = Requests.get(c.url <> "/error", opts)
+    response = Requests.get!(c.url <> "/error", opts)
+    assert response.body == "updated - got: connection refused"
   end
 
   test "errors", c do
